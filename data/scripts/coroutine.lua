@@ -28,7 +28,7 @@ lerp = function(obj, property, start_val, end_val, length)
 	while time < length do
 		local rel = time / length
 		obj[property] = start_val + (end_val - start_val) * rel
-		td = coroutine.yield()
+		local td = coroutine.yield()
 		time = time + td
 	end
 	return false

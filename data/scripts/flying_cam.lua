@@ -7,7 +7,8 @@ local pitch = 0
 local forward = 0
 local dyaw = 0
 local dpitch = 0
-local rmb_down = 0
+local rmb_down = false
+
 
 
 function update(dt)
