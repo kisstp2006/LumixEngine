@@ -532,7 +532,6 @@ static i32 LUA_getPropertyType(reflection::PropertyBase* property) {
 		STRING,
 		ARRAY,
 		BLOB,
-		DYNAMIC
 	};
 	
 	struct : reflection::IPropertyVisitor {
@@ -549,7 +548,6 @@ static i32 LUA_getPropertyType(reflection::PropertyBase* property) {
 		void visit(const reflection::Property<const char*>& prop) override { type = PropertyType::STRING; }
 		void visit(const struct reflection::ArrayProperty& prop) override { type = PropertyType::ARRAY; }
 		void visit(const struct reflection::BlobProperty& prop) override { type = PropertyType::BLOB; }
-		void visit(const reflection::DynamicProperties& prop) override { type = PropertyType::DYNAMIC; }
 		PropertyType type;
 	} visitor;
 	property->visit(visitor);
@@ -707,9 +705,10 @@ static int LUA_loadResource(LuaScriptSystem* system, const char* path, const cha
 }
 
 
-static const char* LUA_getResourcePath(LuaScriptSystem* system, i32 resource_handle)
-{
-	Resource* res = system->getLuaResource(resource_handle);
+static const char* LUA_getResourcePath(lua_State* L, i32 handle) {
+	Engine* engine = LuaWrapper::getClosureObject<Engine>(L);
+	auto* system = (LuaScriptSystem*)engine->getSystemManager().getSystem("lua_script");
+	Resource* res = system->getLuaResource(handle);
 	return res->getPath().c_str();
 }
 
@@ -930,6 +929,7 @@ void registerEngineAPI(lua_State* L, Engine* engine)
 	REGISTER_FUNCTION(setTimeMultiplier);
 	REGISTER_FUNCTION(startGame);
 	REGISTER_FUNCTION(unloadResource);
+	LuaWrapper::createSystemClosure(L, "LumixAPI", engine, "getResourcePath", &LuaWrapper::wrap<LUA_getResourcePath>);
 
 	LuaWrapper::createSystemFunction(L, "LumixReflection", "getComponent", &LuaWrapper::wrap<LUA_getComponent>);
 	LuaWrapper::createSystemFunction(L, "LumixReflection", "getNumComponents", &LuaWrapper::wrap<LUA_getNumComponents>);
@@ -1126,6 +1126,7 @@ void registerEngineAPI(lua_State* L, Engine* engine)
 				end
 			end
 		end
+		Lumix.Entity.INVALID = Lumix.Entity:new(nil, -1)
 
 		Lumix.Entity.__eq = function(a, b)
 			return a._entity == b._entity and a._world == b._world
@@ -1218,6 +1219,30 @@ void registerEngineAPI(lua_State* L, Engine* engine)
 				end
 			end
 			return ent
+		end
+
+		Lumix.Resource = {}
+		function Lumix.Resource:new(handle, type)
+			local r = { _handle = handle, _type = type }
+			setmetatable(r, self)
+			return r
+		end
+		function Lumix.Resource:newEmpty(type)
+			local r = { _handle = -1, _type = type }
+			setmetatable(r, self)
+			return r
+		end
+		function Lumix.Resource:getPath()
+			return LumixAPI.getResourcePath(self._handle)
+		end
+		function Lumix.Resource.__index(table, key)
+			if Lumix.Resource[key] ~= nil then
+				return Lumix.Resource[key]
+			end
+			if key == "path" then
+				return self:getPath()
+			end
+			return nil
 		end
 	)#";
 

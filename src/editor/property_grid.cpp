@@ -103,108 +103,6 @@ struct GridUIVisitor final : reflection::IPropertyVisitor
 		return attrs;
 	}
 
-	template <typename T>
-	void dynamicProperty(const ComponentUID& cmp, const reflection::DynamicProperties& prop, u32 prop_index) {
-		struct Prop : reflection::Property<T> {
-			Prop(IAllocator& allocator) : reflection::Property<T>(allocator) {}
-
-			T get(ComponentUID cmp, u32 array_index) const override {
-				return reflection::get<T>(prop->getValue(cmp, array_index, index));
-			}
-
-			void set(ComponentUID cmp, u32 array_index, T value) const override {
-				reflection::DynamicProperties::Value v;
-				reflection::set<T>(v, value);
-				prop->set(cmp, array_index, index, v);
-			}
-
-			bool isReadonly() const override { return false; }
-
-			const reflection::DynamicProperties* prop;
-			ComponentUID cmp;
-			int index;
-		} p(m_app.getAllocator());
-
-		p.name = prop.getName(cmp, m_index, prop_index);
-		p.prop = &prop;
-		p.index =  prop_index;
-		if (!m_grid.m_property_filter.pass(p.name)) return;
-		visit(p);
-	}
-
-	void visit(const reflection::DynamicProperties& prop) override {
-		ComponentUID cmp = getComponent();;
-		for (u32 i = 0, c = prop.getCount(cmp, m_index); i < c; ++i) {
-			const reflection::DynamicProperties::Type type = prop.getType(cmp, m_index, i);
-			switch(type) {
-				case reflection::DynamicProperties::NONE: break;
-				case reflection::DynamicProperties::FLOAT: dynamicProperty<float>(cmp, prop, i); break;
-				case reflection::DynamicProperties::BOOLEAN: dynamicProperty<bool>(cmp, prop, i); break;
-				case reflection::DynamicProperties::ENTITY: dynamicProperty<EntityPtr>(cmp, prop, i); break;
-				case reflection::DynamicProperties::I32: dynamicProperty<i32>(cmp, prop, i); break;
-				case reflection::DynamicProperties::STRING: dynamicProperty<const char*>(cmp, prop, i); break;
-				case reflection::DynamicProperties::COLOR: {
-					struct Prop : reflection::Property<Vec3> {
-						Prop(IAllocator& allocator) : Property<Vec3>(allocator) {}
-
-						Vec3 get(ComponentUID cmp, u32 array_index) const override {
-							return reflection::get<Vec3>(prop->getValue(cmp, array_index, index));
-						}
-						void set(ComponentUID cmp, u32 array_index, Vec3 value) const override {
-							reflection::DynamicProperties::Value v;
-							reflection::set(v, value);
-							prop->set(cmp, array_index, index, v);
-						}
-
-						bool isReadonly() const override { return false; }
-
-						const reflection::DynamicProperties* prop;
-						ComponentUID cmp;
-						int index;
-						reflection::ColorAttribute attr;
-					} p(m_app.getAllocator());
-
-					p.name = prop.getName(cmp, m_index, i);
-					p.prop = &prop;
-					p.index =  i;
-					p.attributes.push(&p.attr);
-					visit(p);
-					break;
-				}
-				case reflection::DynamicProperties::RESOURCE: {
-					struct Prop : reflection::Property<Path> {
-						Prop(IAllocator& allocator) : Property<Path>(allocator) {}
-
-						Path get(ComponentUID cmp, u32 array_index) const override {
-							return Path(reflection::get<const char*>(prop->getValue(cmp, array_index, index)));
-						}
-
-						void set(ComponentUID cmp, u32 array_index, Path value) const override {
-							reflection::DynamicProperties::Value v;
-							reflection::set(v, value);
-							prop->set(cmp, array_index, index, v);
-						}
-
-						bool isReadonly() const override { return false; }
-
-						const reflection::DynamicProperties* prop;
-						ComponentUID cmp;
-						int index;
-						reflection::ResourceAttribute attr;
-					} p(m_app.getAllocator());
-
-					p.attr = prop.getResourceAttribute(cmp, m_index, i);
-					p.name = prop.getName(cmp, m_index, i);
-					p.prop = &prop;
-					p.index =  i;
-					p.attributes.push(&p.attr);
-					visit(p);
-					break;
-				}
-			}
-		}
-	}
-
 	void visit(const reflection::Property<float>& prop) override
 	{
 		if (!m_filter.pass(prop.name)) return;
@@ -322,99 +220,16 @@ struct GridUIVisitor final : reflection::IPropertyVisitor
 		if (prop.isReadonly()) ImGuiEx::PopReadOnly();
 	}
 
-
 	void visit(const reflection::Property<EntityPtr>& prop) override
 	{
 		if (!m_filter.pass(prop.name)) return;
 		if (prop.isReadonly()) ImGuiEx::PushReadOnly();
 		ComponentUID cmp = getComponent();
 		EntityPtr entity = prop.get(cmp, m_index);
-
-		char buf[128];
-		getEntityListDisplayName(m_app, *m_editor.getWorld(), Span(buf), entity);
-		ImGui::PushID(prop.name);
-		
 		ImGuiEx::Label(prop.name);
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, ImGui::GetStyle().ItemSpacing.y));
-		
-		if (!entity.isValid()) {
-			copyString(buf, "No entity (click to set)");
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+		if (m_grid.entityInput(prop.name, &entity)) {
+			m_editor.setProperty(m_cmp_type, m_array, m_index, prop.name, m_entities, entity);
 		}
-		
-		const float icons_w = ImGui::CalcTextSize(ICON_FA_BULLSEYE ICON_FA_TRASH).x;
-		if (ImGui::Button(buf, ImVec2(entity.isValid() ? -icons_w : -1.f, 0))) {
-			ImGui::OpenPopup("popup");
-		}
-		if (!entity.isValid()) {
-			ImGui::PopStyleColor();
-		}
-
-		if (ImGui::BeginDragDropTarget()) {
-			if (auto* payload = ImGui::AcceptDragDropPayload("entity")) {
-				EntityRef dropped_entity = *(EntityRef*)payload->Data;
-				m_editor.setProperty(m_cmp_type, m_array, m_index, prop.name, m_entities, dropped_entity);
-			}
-			ImGui::EndDragDropTarget();
-		}
-
-		if (entity.isValid()) {
-			ImGui::SameLine();
-			if (ImGuiEx::IconButton(ICON_FA_BULLSEYE, "Go to")) {
-				m_grid.m_deferred_select = entity;
-			}
-			ImGui::SameLine();
-			if (ImGuiEx::IconButton(ICON_FA_TRASH, "Clear")) {
-				m_editor.setProperty(m_cmp_type, m_array, m_index, prop.name, m_entities, INVALID_ENTITY);
-			}
-		}
-		ImGui::PopStyleVar();
-
-		World& world = *m_editor.getWorld();
-		if (ImGuiEx::BeginResizablePopup("popup", ImVec2(200, 300), ImGuiWindowFlags_NoNavInputs)) {
-			static TextFilter entity_filter;
-			static i32 selected_idx = -1;
-			entity_filter.gui("Filter", -1, ImGui::IsWindowAppearing());
-			const bool insert_enter = ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter);
-			bool scroll = false;
-			if (ImGui::IsItemFocused()) {
-				if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && selected_idx > 0) {
-					--selected_idx;
-					scroll = true;
-				}
-				if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
-					++selected_idx;
-					scroll = true;
-				}
-			}
-			
-			if (ImGui::BeginChild("list", ImVec2(0, ImGui::GetContentRegionAvail().y))) {
-				i32 idx = -1;
-				// TODO imgui clipper
-				for (EntityPtr i = world.getFirstEntity(); i.isValid(); i = world.getNextEntity(*i)) {
-					getEntityListDisplayName(m_app, world, Span(buf), i);
-					const bool show = entity_filter.pass(buf);
-					if (!show) continue;
-
-					ImGui::PushID(i.index);
-					++idx;
-					const bool selected = selected_idx == idx;
-					if (show && (ImGui::Selectable(buf, selected) || (selected && insert_enter))) {
-						m_editor.setProperty(m_cmp_type, m_array, m_index, prop.name, m_entities, i);
-						ImGui::CloseCurrentPopup();
-						ImGui::PopID();
-						break;
-					}
-					if (selected && scroll) {
-						ImGui::SetScrollHereY();
-					}
-					ImGui::PopID();
-				}
-			}
-			ImGui::EndChild();
-			ImGui::EndPopup();
-		}
-		ImGui::PopID();
 		if (prop.isReadonly()) ImGuiEx::PopReadOnly();
 	}
 
@@ -612,7 +427,11 @@ struct GridUIVisitor final : reflection::IPropertyVisitor
 		if (prop.isReadonly()) ImGuiEx::PopReadOnly();
 	}
 
-	void visit(const reflection::BlobProperty& prop) override {}
+	void visit(const reflection::BlobProperty& prop) override {
+		for (PropertyGrid::IPlugin* plugin : m_grid.m_plugins) {
+			plugin->blobGUI(m_grid, m_entities, m_cmp_type, m_index, m_filter, m_editor);
+		}
+	}
 
 	void visit(const reflection::ArrayProperty& prop) override
 	{
@@ -686,6 +505,100 @@ struct GridUIVisitor final : reflection::IPropertyVisitor
 };
 
 
+bool PropertyGrid::entityInput(const char* name, EntityPtr* entity) {
+	ASSERT(entity);
+	bool changed = false;
+	char buf[128];
+	World& world = *m_app.getWorldEditor().getWorld();
+	getEntityListDisplayName(m_app, world, Span(buf), *entity);
+	ImGui::PushID(name);
+	
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, ImGui::GetStyle().ItemSpacing.y));
+	
+	if (!entity->isValid()) {
+		copyString(buf, "No entity (click to set)");
+		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+	}
+	
+	const float icons_w = ImGui::CalcTextSize(ICON_FA_BULLSEYE ICON_FA_TRASH).x;
+	if (ImGui::Button(buf, ImVec2(entity->isValid() ? -icons_w : -1.f, 0))) {
+		ImGui::OpenPopup("popup");
+	}
+	if (!entity->isValid()) {
+		ImGui::PopStyleColor();
+	}
+
+	if (ImGui::BeginDragDropTarget()) {
+		if (auto* payload = ImGui::AcceptDragDropPayload("entity")) {
+			EntityRef dropped_entity = *(EntityRef*)payload->Data;
+			*entity = dropped_entity;
+			changed = true;
+		}
+		ImGui::EndDragDropTarget();
+	}
+
+	if (entity->isValid()) {
+		ImGui::SameLine();
+		if (ImGuiEx::IconButton(ICON_FA_BULLSEYE, "Go to")) {
+			m_deferred_select = *entity;
+		}
+		ImGui::SameLine();
+		if (ImGuiEx::IconButton(ICON_FA_TRASH, "Clear")) {
+			*entity = INVALID_ENTITY;
+			changed = true;
+		}
+	}
+	ImGui::PopStyleVar();
+
+	if (ImGuiEx::BeginResizablePopup("popup", ImVec2(200, 300), ImGuiWindowFlags_NoNavInputs)) {
+		static TextFilter entity_filter;
+		static i32 selected_idx = -1;
+		entity_filter.gui("Filter", -1, ImGui::IsWindowAppearing());
+		const bool insert_enter = ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter);
+		bool scroll = false;
+		if (ImGui::IsItemFocused()) {
+			if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && selected_idx > 0) {
+				--selected_idx;
+				scroll = true;
+			}
+			if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) {
+				++selected_idx;
+				scroll = true;
+			}
+		}
+		
+		if (ImGui::BeginChild("list", ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+			i32 idx = -1;
+			// TODO imgui clipper
+			for (EntityPtr i = world.getFirstEntity(); i.isValid(); i = world.getNextEntity(*i)) {
+				getEntityListDisplayName(m_app, world, Span(buf), i);
+				const bool show = entity_filter.pass(buf);
+				if (!show) continue;
+
+				ImGui::PushID(i.index);
+				++idx;
+				const bool selected = selected_idx == idx;
+				if (show && (ImGui::Selectable(buf, selected) || (selected && insert_enter))) {
+					*entity = i;
+					changed = true;
+					ImGui::CloseCurrentPopup();
+					ImGui::PopID();
+					break;
+				}
+				if (selected && scroll) {
+					ImGui::SetScrollHereY();
+				}
+				ImGui::PopID();
+			}
+		}
+		ImGui::EndChild();
+		ImGui::EndPopup();
+	}
+	ImGui::PopID();
+	return changed;
+}
+
+
 static bool componentTreeNode(StudioApp& app, WorldEditor& editor, ComponentType cmp_type, const EntityRef* entities, int entities_count)
 {
 	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowItemOverlap;
@@ -726,21 +639,6 @@ void PropertyGrid::showComponentProperties(const Array<EntityRef>& entities, Com
 			if (m_property_filter.pass(prop.name)) {
 				filter_properties = true;
 				return;
-			}
-			if constexpr (IsSame<RemoveCVR<decltype(prop)>, reflection::DynamicProperties>::Value) {
-				const reflection::DynamicProperties& dp = prop;
-				ComponentUID cuid(entities[0], cmp_type, editor.getWorld()->getModule(cmp_type));
-				const u32 array_count = parent ? parent->getCount(cuid) : 1;
-				for (u32 array_index = 0; array_index < array_count; ++array_index) {
-					const u32 count = dp.getCount(cuid, array_index);
-					for (u32 i = 0; i < count; ++i) {
-						const char* name = dp.getName(cuid, array_index, i);
-						if (m_property_filter.pass(name)) {
-							filter_properties = true;
-							return;
-						}
-					}
-				}
 			}
 		});
 

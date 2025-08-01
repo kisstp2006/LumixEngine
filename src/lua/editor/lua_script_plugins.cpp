@@ -783,22 +783,228 @@ struct AddComponentPlugin final : StudioApp::IAddComponentPlugin
 	FileSelector file_selector;
 };
 
+template <typename T> struct StoredType { 
+	using Type = T; 
+	static T construct(T value, IAllocator& allocator) { return value; }
+	static T get(T value) { return value; }
+};
+template <> struct StoredType<const char*> {
+	using Type = String;
+	static String construct(const char* value, IAllocator& allocator) { return String(value, allocator); }
+	static const char* get(const String& value) { return value.c_str(); }
+};
+
+template <typename T>
+struct SetLuaPropertyCommand : IEditorCommand {
+	SetLuaPropertyCommand(LuaScriptSystem& system, WorldEditor& editor, EntityRef entity, int script_index, const char* property_name, T value)
+		: m_editor(editor)
+		, m_entity(entity)
+		, m_script_index(script_index)
+		, m_property_name(property_name)
+		, m_new_value(StoredType<T>::construct(value, editor.getAllocator()))
+		, m_old_value(StoredType<T>::construct({}, editor.getAllocator()))
+		, m_system(system)
+	{
+		LuaScriptModule* module = (LuaScriptModule*)m_editor.getWorld()->getModule(LUA_SCRIPT_TYPE);
+		lua_State* L = module->getState(m_entity, m_script_index);
+		if (!L) return;
+		
+		LuaWrapper::DebugGuard guard(L);
+		const i32 env = module->getEnvironment(m_entity, m_script_index);
+		lua_rawgeti(L, LUA_REGISTRYINDEX, env);
+		lua_pushstring(L, m_property_name);
+		lua_gettable(L, -2);
+		
+		m_old_value = LuaWrapper::toType<T>(L, -1);
+		
+		lua_pop(L, 2);
+	}
+
+	bool execute() override {
+		return setValue(StoredType<T>::get(m_new_value));
+	}
+
+	void undo() override {
+		setValue(StoredType<T>::get(m_old_value));
+	}
+
+	bool setValue(T value) {
+		LuaScriptModule* module = (LuaScriptModule*)m_editor.getWorld()->getModule(LUA_SCRIPT_TYPE);
+		lua_State* L = module->getState(m_entity, m_script_index);
+		if (!L) return false;
+		
+		LuaWrapper::DebugGuard guard(L);
+		const i32 env = module->getEnvironment(m_entity, m_script_index);
+		lua_rawgeti(L, LUA_REGISTRYINDEX, env);
+		
+		if constexpr (IsSame<T, Path>::Value) {
+			lua_getfield(L, -1, m_property_name);
+			
+			lua_getfield(L, -1, "_type");
+			const ResourceType res_type(lua_tostring(L, -1));
+			lua_pop(L, 1);
+
+			const i32 res_idx = value.isEmpty() ? -1 : m_system.addLuaResource(value, res_type);
+			
+			LuaWrapper::push(L, res_idx);
+			lua_setfield(L, -2, "_handle");
+			lua_pop(L, 2);
+			return true;
+		}
+		else {
+			lua_pushstring(L, m_property_name);
+			
+			if constexpr (IsSame<T, EntityPtr>::Value) {
+				LuaWrapper::pushEntity(L, value, m_editor.getWorld());
+			}
+			else {
+				LuaWrapper::push(L, value);
+			}
+			
+			lua_settable(L, -3);
+			lua_pop(L, 1);
+			return true;
+		}
+	}
+
+	const char* getType() override { return "set_lua_property"; }
+
+	bool merge(IEditorCommand& command) override { 
+		ASSERT(command.getType() == getType());
+		auto& my_command = static_cast<SetLuaPropertyCommand<T>&>(command);
+		if (my_command.m_entity != m_entity) return false;
+		if (my_command.m_script_index != m_script_index) return false;
+		if (!equalStrings(my_command.m_property_name, m_property_name)) return false;
+		
+		my_command.m_new_value = static_cast<StoredType<T>::Type&&>(m_new_value);
+		return true;		
+	}
+
+	WorldEditor& m_editor;
+	LuaScriptSystem& m_system;
+	EntityRef m_entity;
+	int m_script_index;
+	const char* m_property_name;
+	StoredType<T>::Type m_new_value;
+	StoredType<T>::Type m_old_value;
+};
+
 struct PropertyGridPlugin final : PropertyGrid::IPlugin
 {
-	void onGUI(PropertyGrid& grid, Span<const EntityRef> entities, ComponentType cmp_type, const TextFilter& filter, WorldEditor& editor) override {
-		if (filter.isActive()) return;
+	PropertyGridPlugin(StudioApp& app)
+		: m_app(app)
+		, m_editor(app.getWorldEditor())
+	{}
+
+	void onGUI(PropertyGrid& grid, Span<const EntityRef> entities, ComponentType cmp_type, const TextFilter& filter, WorldEditor& editor) override {}
+	
+	void blobGUI(PropertyGrid& grid, Span<const EntityRef> entities, ComponentType cmp_type, u32 script_idx, const TextFilter& filter, WorldEditor& editor) override {
 		if (cmp_type != LUA_SCRIPT_TYPE) return;
 		if (entities.length() != 1) return;
 
 		LuaScriptModule* module = (LuaScriptModule*)editor.getWorld()->getModule(cmp_type); 
 		const EntityRef e = entities[0];
 		const u32 count = module->getScriptCount(e);
-		for (u32 i = 0; i < count; ++i) {
-			if (module->beginFunctionCall(e, i, "onGUI")) {
+		if (!filter.isActive()) {
+			if (module->beginFunctionCall(e, script_idx, "onGUI")) {
 				module->endFunctionCall();
 			}
 		}
+
+		lua_State* L = module->getState(e, script_idx);
+		
+		LuaWrapper::DebugGuard guard(L);
+		const i32 env = module->getEnvironment(e, script_idx);
+		const i32 num_props = module->getPropertyCount(e, script_idx);
+		lua_rawgeti(L, LUA_REGISTRYINDEX, env);
+		
+		for (i32 prop_idx = 0; prop_idx < num_props; ++prop_idx) {
+			const char* name = module->getPropertyName(e, script_idx, prop_idx);
+			if (!filter.pass(name)) continue;
+			LuaScriptModule::Property::Type type = module->getPropertyType(e, script_idx, prop_idx);
+			lua_pushstring(L, name);
+			lua_gettable(L, -2);
+			ImGuiEx::Label(name);
+			ImGui::PushID(name);
+			LuaScriptSystem& system = ((LuaScriptSystem&)module->getSystem());
+			switch (type) {
+				case LuaScriptModule::Property::ANY: ASSERT(false); break;
+				case LuaScriptModule::Property::RESOURCE: {
+					lua_getfield(L, -1, "_handle");
+					i32 res_idx = lua_tointeger(L, -1);
+					lua_pop(L, 1);
+					Resource* res = system.getLuaResource(res_idx);
+					ResourceType res_type = module->getPropertyResourceType(e, script_idx, prop_idx);
+					Path path = res ? res->getPath() : Path();
+					if (m_app.getAssetBrowser().resourceInput("##v", path, res_type)) {
+						const i32 prev_res_idx = res_idx;
+						UniquePtr<SetLuaPropertyCommand<Path>> command = UniquePtr<SetLuaPropertyCommand<Path>>::create(m_editor.getAllocator(), system, m_editor, e, script_idx, name, path);
+						m_editor.executeCommand(command.move());
+						system.unloadLuaResource(prev_res_idx);
+					}
+					break;
+				}
+				case LuaScriptModule::Property::ENTITY: {
+					lua_getfield(L, -1, "_entity");
+					EntityPtr value = EntityPtr{lua_tointeger(L, -1)};
+					lua_pop(L, 1);
+					if (m_app.getPropertyGrid().entityInput(name, &	value)) {
+						UniquePtr<SetLuaPropertyCommand<EntityPtr>> command = UniquePtr<SetLuaPropertyCommand<EntityPtr>>::create(m_editor.getAllocator(), system, m_editor, e, script_idx, name, value);
+						m_editor.executeCommand(command.move());
+					}
+					break;
+				}
+				case LuaScriptModule::Property::BOOLEAN: {
+					bool value = lua_toboolean(L, -1);
+					if (ImGui::Checkbox("##v", &value)) {
+						UniquePtr<SetLuaPropertyCommand<bool>> command = UniquePtr<SetLuaPropertyCommand<bool>>::create(m_editor.getAllocator(), system, m_editor, e, script_idx, name, value);
+						m_editor.executeCommand(command.move());
+					}
+					break;
+				}
+				case LuaScriptModule::Property::COLOR: {
+					Vec3 color = LuaWrapper::toType<Vec3>(L, -1);
+					if (ImGui::ColorEdit3("##v", (float*)&color)) {
+						UniquePtr<SetLuaPropertyCommand<Vec3>> command = UniquePtr<SetLuaPropertyCommand<Vec3>>::create(m_editor.getAllocator(), system, m_editor, e, script_idx, name, color);
+						m_editor.executeCommand(command.move());
+					}
+					break;
+				}
+				case LuaScriptModule::Property::INT: {
+					int value = (int)lua_tointeger(L, -1);
+					if (ImGui::DragInt("##v", &value)) {
+						UniquePtr<SetLuaPropertyCommand<int>> command = UniquePtr<SetLuaPropertyCommand<int>>::create(m_editor.getAllocator(), system, m_editor, e, script_idx, name, value);
+						m_editor.executeCommand(command.move());
+					}
+					break;
+				}
+				case LuaScriptModule::Property::FLOAT: {
+					float value = (float)lua_tonumber(L, -1);
+					if (ImGui::DragFloat("##v", &value)) {
+						UniquePtr<SetLuaPropertyCommand<float>> command = UniquePtr<SetLuaPropertyCommand<float>>::create(m_editor.getAllocator(), system, m_editor, e, script_idx, name, value);
+						m_editor.executeCommand(command.move());
+					}
+					break;
+				}
+				case LuaScriptModule::Property::STRING: {
+					const char* value = lua_tostring(L, -1);
+					String str(value, m_editor.getAllocator());
+					
+					if (inputString("##v", &str)) {
+						UniquePtr<SetLuaPropertyCommand<const char*>> command = UniquePtr<SetLuaPropertyCommand<const char*>>::create(m_editor.getAllocator(), system, m_editor, e, script_idx, name, str.c_str());
+						m_editor.executeCommand(command.move());
+					}
+					break;
+				}
+			}
+			ImGui::PopID();
+			lua_pop(L, 1);
+		}
+		lua_pop(L, 1);
 	}
+
+	StudioApp& m_app;
+	WorldEditor& m_editor;
 };
 
 /*
@@ -840,6 +1046,7 @@ struct StudioAppPlugin : StudioApp::IPlugin {
 		, m_asset_plugin(m_luau_analysis, app)
 		, m_lua_actions(app.getAllocator())
 		, m_plugins(app.getAllocator())
+		, m_property_grid_plugin(app)
 	{
 		LuaScriptSystem* system = (LuaScriptSystem*)app.getEngine().getSystemManager().getSystem("lua_script");
 		lua_State* L = system->getState();
