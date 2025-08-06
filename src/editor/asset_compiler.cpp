@@ -1,6 +1,5 @@
 #include "asset_compiler.h"
 #include "core/atomic.h"
-#include "core/atomic.h"
 #include "core/hash.h"
 #include "core/job_system.h"
 #include "core/log.h"
@@ -150,8 +149,9 @@ struct AssetCompilerImpl : AssetCompiler {
 		}
 
 		os::InputFile file;
-		if (!file.open(".lumix/resources/_version.bin")) {
-			logError("Could not open .lumix/resources/_version.bin");
+		Path version_bin_path(path, "/_version.bin");
+		if (!file.open(version_bin_path.c_str())) {
+			logInfo("Could not open .lumix/resources/_version.bin");
 		}
 		else {
 			u32 version;
@@ -177,7 +177,7 @@ struct AssetCompilerImpl : AssetCompiler {
 				}
 
 				os::OutputFile out_file;
-				if (!out_file.open(".lumix/resources/_version.bin")) {
+				if (!out_file.open(version_bin_path.c_str())) {
 					logError("Could not open .lumix/resources/_version.bin");
 				}
 				else {

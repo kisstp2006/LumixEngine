@@ -14,7 +14,6 @@
 #include "editor/entity_folders.h"
 #include "editor/prefab_system.h"
 #include "editor/studio_app.h"
-#include "editor/utils.h"
 #include "engine/component_uid.h"
 #include "engine/core.h"
 #include "engine/engine.h"
@@ -697,10 +696,10 @@ TerrainEditor::TerrainEditor(StudioApp& app)
 	, m_size_spread(1, 1)
 	, m_y_spread(0, 0)
 	, m_layer_views(app.getAllocator())
-	, m_smooth_terrain_action("Smooth terrain", "Terrain editor - smooth", "smoothTerrain", "")
-	, m_lower_terrain_action("Lower terrain", "Terrain editor - lower", "lowerTerrain", "")
-	, m_remove_grass_action("Remove grass from terrain", "Terrain editor - remove grass", "removeGrassFromTerrain", "")
-	, m_remove_entity_action("Remove entities from terrain", "Terrain editor - remove entities", "removeEntitiesFromTerrain", "")
+	, m_smooth_terrain_action("Terrain editor", "Smooth terrain", "Smooth", "smoothTerrain", "")
+	, m_lower_terrain_action("Terrain editor", "Lower terrain", "Lower", "lowerTerrain", "")
+	, m_remove_grass_action("Terrain editor", "Remove grass from terrain", "Remove grass", "removeGrassFromTerrain", "")
+	, m_remove_entity_action("Terrain editor", "Remove entities from terrain", "Remove entities", "removeEntitiesFromTerrain", "")
 {
 	app.addPlugin(*this);
 

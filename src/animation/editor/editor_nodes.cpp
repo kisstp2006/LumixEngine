@@ -5,6 +5,7 @@
 #include "animation/animation.h"
 #include "animation/controller.h"
 #include "editor_nodes.h"
+#include "editor/text_filter.h"
 #include "renderer/model.h"
 #include "renderer/pose.h"
 
@@ -993,6 +994,13 @@ void SwitchNode::serialize(OutputMemoryStream& stream) const {
 	Node::serialize(stream);
 	stream.write(m_blend_length);
 }
+
+Node::~Node() {
+	for (Node* node : m_nodes) {
+		LUMIX_DELETE(m_allocator, node);
+	}
+} 
+
 
 void Node::serialize(OutputMemoryStream& stream) const {
 	stream.write(m_id);

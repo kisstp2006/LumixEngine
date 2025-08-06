@@ -6,8 +6,9 @@
 #include "core/string.h"
 #include "core/tag_allocator.h"
 
+#include "editor/action.h"
 #include "editor/studio_app.h"
-#include "editor/utils.h"
+#include "editor/text_filter.h"
 
 
 namespace Lumix
@@ -72,7 +73,7 @@ struct LUMIX_EDITOR_API LogUI : StudioApp::GUIPlugin
 		bool m_show_warnings = true;
 		bool m_show_errors = true;
 
-		Action m_toggle_ui{"Log", "Toggle log UI", "log_toggle_ui", "", Action::WINDOW};
+		Action m_toggle_ui{"Log", "Log", "Log - Toggle UI", "log_toggle_ui", "", Action::WINDOW};
 		TextFilter m_filter;
 };
 

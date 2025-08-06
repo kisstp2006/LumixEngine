@@ -1,20 +1,21 @@
 #include <imgui/imgui.h>
 
 #include "asset_browser.h"
-#include "core/crt.h"
 #include "core/hash.h"
 #include "core/log.h"
 #include "core/os.h"
 #include "core/path.h"
 #include "core/profiler.h"
+#include "core/sort.h"
 #include "core/string.h"
+#include "editor/action.h"
 #include "editor/asset_compiler.h"
 #include "editor/editor_asset.h"
 #include "editor/prefab_system.h"
 #include "editor/render_interface.h"
 #include "editor/settings.h"
 #include "editor/studio_app.h"
-#include "editor/utils.h"
+#include "editor/text_filter.h"
 #include "editor/world_editor.h"
 #include "engine/engine.h"
 #include "engine/reflection.h"
@@ -118,7 +119,7 @@ struct AssetBrowserImpl : AssetBrowser {
 		settings.registerOption("asset_browser_thumbnail_size", &m_thumbnail_size, "Asset browser", "Thumbnail size");
 	}
 
-	void onBasePathChanged() {
+	void onBasePathChanged() override {
 		const char* base_path = m_app.getEngine().getFileSystem().getBasePath();
 		Path path(base_path, ".lumix");
 		bool success = os::makePath(path.c_str());
@@ -328,19 +329,14 @@ struct AssetBrowserImpl : AssetBrowser {
 
 	void sortTiles() {
 		if (m_filter.isActive()) {
-			qsort(m_file_infos.begin(), m_file_infos.size(), sizeof(m_file_infos[0]), [](const void* a, const void* b){
-				const FileInfo* m = (FileInfo*)a;
-				const FileInfo* n = (FileInfo*)b;
-				if (n->score < m->score) return -1;
-				if (n->score > m->score) return 1;
-				return compareString(m->filepath, n->filepath);
+			sort(m_file_infos.begin(), m_file_infos.end(), [](const FileInfo& a, const FileInfo& b){
+				if (a.score < b.score) return true;
+				return compareStringInsensitive(a.filepath, b.filepath) < 0;
 			});
 		}
 		else {
-			qsort(m_file_infos.begin(), m_file_infos.size(), sizeof(m_file_infos[0]), [](const void* a, const void* b){
-				FileInfo* m = (FileInfo*)a;
-				FileInfo* n = (FileInfo*)b;
-				return compareString(m->filepath, n->filepath);
+			sort(m_file_infos.begin(), m_file_infos.end(), [](const FileInfo& a, const FileInfo& b){
+				return compareStringInsensitive(a.filepath, b.filepath) < 0;
 			});
 		}
 	}
@@ -1334,10 +1330,10 @@ struct AssetBrowserImpl : AssetBrowser {
 	bool m_show_subresources;
 	bool m_request_delete = false;
 	float m_thumbnail_size = 1.f;
-	Action m_focus_search{"Focus search", "Asset browser - focus search", "asset_browser_focus_search", ICON_FA_SEARCH};
-	Action m_back_action{"Back", "Asset browser - back in history", "asset_browser_back", ICON_FA_ARROW_LEFT};
-	Action m_forward_action{"Forward", "Asset browser - forward in history", "asset_browser_forward", ICON_FA_ARROW_RIGHT};
-	Action m_toggle_ui{"Asset browser", "Asset browser - toggle UI", "asset_browser_toggle_ui", "", Action::WINDOW};
+	Action m_focus_search{"Asset browser", "Focus search", "Focus search", "asset_browser_focus_search", ICON_FA_SEARCH};
+	Action m_back_action{"Asset browser", "Back", "Back in history", "asset_browser_back", ICON_FA_ARROW_LEFT};
+	Action m_forward_action{"Asset browser", "Forward", "Forward in history", "asset_browser_forward", ICON_FA_ARROW_RIGHT};
+	Action m_toggle_ui{"Asset browser", "Asset browser", "Toggle UI", "asset_browser_toggle_ui", "", Action::WINDOW};
 	WorldAssetPlugin m_world_asset_plugin;
 };
 

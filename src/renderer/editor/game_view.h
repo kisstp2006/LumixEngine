@@ -1,7 +1,7 @@
 #pragma once
 
 #include "editor/studio_app.h"
-#include "editor/utils.h"
+#include "editor/action.h"
 #include "core/allocator.h"
 #include "core/math.h"
 #include "core/os.h"
@@ -61,8 +61,8 @@ private:
 		int width;
 		int height;
 	} m_forced_viewport;
-	Action m_toggle_ui{"Game View", "Game view - toggle UI", "game_view_toggle_ui", "", Action::WINDOW};
-	Action m_fullscreen_action{"Fullscreen", "Game view - fullscreen", "game_view_fullscreen", ""};
+	Action m_toggle_ui{"Game View", "Game View", "Toggle UI", "game_view_toggle_ui", "", Action::WINDOW};
+	Action m_fullscreen_action{"Game View", "Fullscreen", "Fullscreen", "game_view_fullscreen", ""};
 };
 
 

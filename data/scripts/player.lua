@@ -13,8 +13,7 @@ local aiming_input_idx = -1
 local dir_input_idx = -1
 local crouched = false
 local aiming = false
-camera_pivot = Lumix.Entity.INVALID
-test = Lumix.Resource:newEmpty("model")
+camera_pivot = Lumix.Entity.NULL
 handle_input = true
 
 function onInputEvent(event : InputEvent)

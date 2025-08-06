@@ -19,8 +19,6 @@
 #include "core/tag_allocator.h"
 #include "nvml.h"
 #include "renderer/gpu/gpu.h"
-#include <Windows.h>
-#include <cassert>
 #include <d3d12.h>
 #include <d3dcompiler.h>
 #include <d3dx12.h>
@@ -759,7 +757,7 @@ struct SamplerHeap {
 		desc.MaxLOD = 1000;
 		desc.MinLOD = -1000;
 		desc.MaxAnisotropy = is_aniso ? 8 : 1;
-		desc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+		desc.ComparisonFunc = (D3D12_COMPARISON_FUNC)0;
 		D3D12_CPU_DESCRIPTOR_HANDLE cpu = cpu_begin;
 		cpu.ptr += increment * id;
 		device->CreateSampler(&desc, cpu);
@@ -3181,3 +3179,5 @@ void createProgram(ProgramHandle program
 }
 
 } // namespace
+
+#include "renderer/fsr3.inl"

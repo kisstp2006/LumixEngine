@@ -14,7 +14,6 @@
 #include "core/os.h"
 #include "core/profiler.h"
 #include "core/stack_array.h"
-#include "core/thread.h"
 #include "engine/reflection.h"
 #include "engine/resource_manager.h"
 #include "core/string.h"
@@ -87,6 +86,7 @@ struct TransientBuffer {
 		slice.offset = m_offset.add(size);
 		slice.size = size;
 		if (slice.offset + size <= m_size) {
+			ASSERT(m_ptr);
 			slice.buffer = m_buffer;
 			slice.ptr = m_ptr + slice.offset;
 			return slice;
@@ -604,6 +604,7 @@ struct RendererImpl final : Renderer {
 			for (const Local<FrameData>& frame : m_frames) {
 				frame->transient_buffer.init();
 				frame->uniform_buffer.init();
+				jobs::turnGreen(&frame->can_setup);
 			}
 			gpu::createBuffer(m_instanced_meshes_buffer, gpu::BufferFlags::SHADER_BUFFER, 64 * 1024 * 1024, nullptr, "instanced_meshes");
 			m_profiler.init();
@@ -890,7 +891,7 @@ struct RendererImpl final : Renderer {
 		return m_layers.size() - 1;
 	}
 
-	void enableBuiltinTAA(bool enable) {
+	void enableBuiltinTAA(bool enable) override {
 		m_taa.m_enabled = enable;
 		}
 
@@ -1340,7 +1341,9 @@ FrameData::FrameData(struct RendererImpl& renderer, IAllocator& allocator, PageA
 	, draw_stream(renderer)
 	, begin_frame_draw_stream(renderer)
 	, end_frame_draw_stream(renderer)
-{}
+{
+	jobs::turnRed(&can_setup);
+}
 
 LUMIX_PLUGIN_ENTRY(renderer) {
 	PROFILE_FUNCTION();
