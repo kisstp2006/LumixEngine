@@ -3,6 +3,7 @@
 
 #include "action.h"
 #include "core/command_line_parser.h"
+#include "core/defer.h"
 #include "core/log.h"
 #include "core/math.h"
 #include "core/os.h"
@@ -1661,7 +1662,7 @@ struct CodeEditorImpl final : CodeEditor {
 		return nullptr;
 	}
 
-	bool gui(const char* str_id, const ImVec2& size, ImFont* ui_font) override {
+	bool gui(const char* str_id, const ImVec2& size, ImFont* code_font, ImFont* ui_font) override {
 		PROFILE_FUNCTION();
 		m_handle_input = false;
 		if (!ImGui::BeginChild(str_id, size, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
@@ -1669,6 +1670,7 @@ struct CodeEditorImpl final : CodeEditor {
 			return false;
 		}
 		
+		ImGui::PushFont(code_font, maximum(1.f, (float)s_font_size));
 		u32 version = m_version;
 		ImGuiIO& io = ImGui::GetIO();
 		const ImGuiStyle& style = ImGui::GetStyle();
@@ -1893,7 +1895,7 @@ struct CodeEditorImpl final : CodeEditor {
 				io.InputQueueCharacters.resize(0);
 			}
 		}
-
+		ImGui::PopFont();
 		ImGui::EndChild();
 		return version != m_version;
 	}
@@ -2901,16 +2903,25 @@ void TextFilter::build() {
 	}
 }
 
-bool TextFilter::gui(const char* hint, float width, bool set_keyboard_focus, Action* focus_action) {
+bool TextFilter::gui(const char* hint, float width, bool set_keyboard_focus, Action* focus_action, bool with_bg) {
+	if (!with_bg) {
+		ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+	}
+	defer {
+		if (!with_bg) ImGui::PopStyleColor(2);
+	};
+
 	if (focus_action) {
 		StaticString<64> hint_shortcut(hint);
 		char shortcut[32];
 		if (focus_action->shortcutText(shortcut)) {
 			hint_shortcut.append(" (", shortcut, ")");
-			return gui(hint_shortcut, width, set_keyboard_focus);
+			return gui(hint_shortcut, width, set_keyboard_focus, nullptr, with_bg);
 		}
 	}
 
+	ImGui::TextUnformatted(ICON_FA_SEARCH); ImGui::SameLine();
 	if (ImGuiEx::Filter(hint, filter, sizeof(filter), width, set_keyboard_focus)) {
 		build();
 		return true;

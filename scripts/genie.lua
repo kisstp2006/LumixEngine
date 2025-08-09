@@ -112,13 +112,13 @@ newoption {
 build_studio = not _OPTIONS["no-studio"]
 build_app = _OPTIONS["with-app"] or false
 local embed_resources = _OPTIONS["embed-resources"]
-local split_projects = _OPTIONS["split-projects"]
 local working_dir = _OPTIONS["working-dir"]
 local debug_args = _OPTIONS["debug-args"]
 local release_args = _OPTIONS["release-args"]
 local luau_dynamic = _OPTIONS["luau-dynamic"]
 local use_basisu =  _OPTIONS["with-basis-universal"]
 local dynamic_plugins = _OPTIONS["dynamic-plugins"]
+local split_projects = _OPTIONS["split-projects"] or dynamic_plugins
 local build_luau = os.isdir("../external/_repos/luau")
 local build_physx = os.isdir("../external/_repos/physx")
 
@@ -672,10 +672,9 @@ if build_app then
 
 			configuration {}
 		end
-		links { "core", "engine" }
 		
 		if build_studio and split_projects then
-			links { "editor" }
+			links { "core", "engine", "editor" }
 		end
 		
 		if build_studio and use_basisu then
@@ -714,7 +713,7 @@ if build_studio then
 			"../src/editor",
 			"../external"
 		}
-		
+
 		if #plugins > 0 and dynamic_plugins then
 			local def = ""
 			for idx, plugin in ipairs(plugins) do
@@ -741,12 +740,13 @@ if build_studio then
 		dbgHelp()
 		includedirs { "../src" }
 		defaultConfigurations()
-		if split_projects then
-			links { "editor", "core", "engine", "renderer" }
-		end
 
 		if embed_resources then
 			files { "../src/studio/**.rc" }
+		end
+
+		if split_projects then
+			links { "core", "engine", "editor" }
 		end
 
 		if debug_args then
@@ -786,9 +786,14 @@ if build_studio then
 				libdirs { "../external/pix/bin/x64" }
 				files { "../external/pix/bin/x64/WinPixEventRuntime.dll" }
 				copy { "../external/pix/bin/x64/WinPixEventRuntime.dll" }
-			
-			configuration {}
 		end
+
+		configuration { "vs*" }
+			libdirs { "../external/pix/bin/x64" }
+			files { "../external/pix/bin/x64/WinPixEventRuntime.dll" }
+			copy { "../external/pix/bin/x64/WinPixEventRuntime.dll" }
+
+		configuration {}
 
 		for _, callback in ipairs(build_studio_callbacks) do
 			callback()

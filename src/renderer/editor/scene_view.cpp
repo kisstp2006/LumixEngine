@@ -3,7 +3,6 @@
 #include "core/delegate_list.h"
 #include "core/geometry.h"
 #include "core/path.h"
-#include "core/path.h"
 #include "core/profiler.h"
 #include "core/string.h"
 #include "editor/asset_browser.h"
@@ -15,12 +14,12 @@
 #include "editor/settings.h"
 #include "editor/studio_app.h"
 #include "editor/utils.h"
+#include "editor/world_editor.h"
 #include "engine/engine.h"
 #include "engine/prefab.h"
 #include "engine/reflection.h"
 #include "engine/resource_manager.h"
 #include "engine/world.h"
-#include "physics/physics_resources.h"
 #include "renderer/culling_system.h"
 #include "renderer/draw_stream.h"
 #include "renderer/draw2d.h"
@@ -175,8 +174,8 @@ struct WorldViewImpl final : WorldView {
 				const Ray ray = m_viewport.getRay(m_mouse_pos);
 				const RayCastModelHit hit = m_module->castRay(ray, INVALID_ENTITY);
 
-				const Array<EntityRef>& selected_entities = m_editor.getSelectedEntities();
-				if (m_snap_mode != SnapMode::NONE && !selected_entities.empty() && hit.is_hit)
+				Span<const EntityRef> selected_entities = m_editor.getSelectedEntities();
+				if (m_snap_mode != SnapMode::NONE && selected_entities.size() != 0 && hit.is_hit)
 				{
 					DVec3 snap_pos = ray.origin + ray.dir * hit.t;
 					if (m_snap_mode == SnapMode::VERTEX) snap_pos = getClosestVertex(hit);
@@ -223,8 +222,8 @@ struct WorldViewImpl final : WorldView {
 	
 	void setCustomPivot() override
 	{
-		const Array<EntityRef>& selected_entities = m_editor.getSelectedEntities();
-		if (selected_entities.empty()) return;
+		Span<const EntityRef> selected_entities = m_editor.getSelectedEntities();
+		if (selected_entities.size() == 0) return;
 
 		const Ray ray = m_viewport.getRay(m_mouse_pos);
 		const RayCastModelHit hit = m_module->castRay(ray, INVALID_ENTITY);
@@ -373,14 +372,14 @@ struct WorldViewImpl final : WorldView {
 
 
 	void copyTransform() override {
-		if (m_editor.getSelectedEntities().empty()) return;
+		if (m_editor.getSelectedEntities().size() == 0) return;
 
 		m_editor.setEntitiesPositionsAndRotations(m_editor.getSelectedEntities().begin(), &m_viewport.pos, &m_viewport.rot, 1);
 	}
 
 	void lookAtSelected() override {
 		const World* world = m_editor.getWorld();
-		if (m_editor.getSelectedEntities().empty()) return;
+		if (m_editor.getSelectedEntities().size() == 0) return;
 
 		m_go_to_parameters.m_is_active = true;
 		m_go_to_parameters.m_t = 0;
@@ -398,8 +397,8 @@ struct WorldViewImpl final : WorldView {
 		m_go_to_parameters.m_t = 0;
 		m_go_to_parameters.m_from = m_viewport.pos;
 		m_go_to_parameters.m_to = m_go_to_parameters.m_from;
-		const Array<EntityRef>& selected_entities = m_editor.getSelectedEntities();
-		if (!selected_entities.empty()) {
+		Span<const EntityRef> selected_entities = m_editor.getSelectedEntities();
+		if (selected_entities.size() != 0) {
 			auto* world = m_editor.getWorld();
 			m_go_to_parameters.m_to = world->getPosition(selected_entities[0]) + Vec3(0, 10, 0);
 		}
@@ -413,8 +412,8 @@ struct WorldViewImpl final : WorldView {
 		m_go_to_parameters.m_t = 0;
 		m_go_to_parameters.m_from = m_viewport.pos;
 		m_go_to_parameters.m_to = m_go_to_parameters.m_from;
-		const Array<EntityRef>& selected_entities = m_editor.getSelectedEntities();
-		if (!selected_entities.empty()) {
+		Span<const EntityRef> selected_entities = m_editor.getSelectedEntities();
+		if (selected_entities.size() != 0) {
 			auto* world = m_editor.getWorld();
 			m_go_to_parameters.m_to = world->getPosition(selected_entities[0]) + Vec3(0, 0, -10);
 		}
@@ -429,8 +428,8 @@ struct WorldViewImpl final : WorldView {
 		m_go_to_parameters.m_t = 0;
 		m_go_to_parameters.m_from = m_viewport.pos;
 		m_go_to_parameters.m_to = m_go_to_parameters.m_from;
-		const Array<EntityRef>& selected_entities = m_editor.getSelectedEntities();
-		if (!selected_entities.empty()) {
+		Span<const EntityRef> selected_entities = m_editor.getSelectedEntities();
+		if (selected_entities.size() != 0) {
 			auto* world = m_editor.getWorld();
 			m_go_to_parameters.m_to = world->getPosition(selected_entities[0]) + Vec3(-10, 0, 0);
 		}
@@ -462,7 +461,7 @@ struct WorldViewImpl final : WorldView {
 		const Quat pitch_rot(pitch_axis, pitch);
 		rot = normalize(pitch_rot * rot);
 
-		if (m_app.getCommonActions().cam_orbit.isActive() && !m_editor.getSelectedEntities().empty()) {
+		if (m_app.getCommonActions().cam_orbit.isActive() && m_editor.getSelectedEntities().size() != 0) {
 			const Vec3 dir = rot.rotate(Vec3(0, 0, 1));
 			const Transform tr = world->getTransform(m_editor.getSelectedEntities()[0]);
 			Vec3 offset = m_app.getGizmoConfig().offset;
@@ -635,7 +634,7 @@ struct SceneView::RenderPlugin : Lumix::RenderPlugin {
 		Renderer& renderer = pipeline.getRenderer();
 
 		// selection
-		const Array<EntityRef>& entities = m_scene_view.m_editor.getSelectedEntities();
+		Span<const EntityRef> entities = m_scene_view.m_editor.getSelectedEntities();
 		const Viewport& vp = m_scene_view.m_view->getViewport();
 		if (entities.size() < 5000) {
 			const RenderBufferHandle selection_mask = renderer.createRenderbuffer({
@@ -646,7 +645,7 @@ struct SceneView::RenderPlugin : Lumix::RenderPlugin {
 			renderer.setRenderTargets({}, selection_mask);
 			pipeline.clear(gpu::ClearFlags::ALL, 0, 0, 0, 0, 0);
 	
-			renderer.pushJob("selection", [&pipeline, &renderer, this, &entities](DrawStream& stream) {
+			renderer.pushJob("selection", [&pipeline, &renderer, this, entities](DrawStream& stream) {
 				RenderModule* module = pipeline.getModule();
 				const World& world = module->getWorld();
 				const u32 skinned_define = 1 << renderer.getShaderDefineIdx("SKINNED");
@@ -897,8 +896,8 @@ SceneView::~SceneView()
 
 void SceneView::toggleWireframe() {
 	WorldEditor& editor = m_app.getWorldEditor();
-	const Array<EntityRef>& selected = editor.getSelectedEntities();
-	if (selected.empty()) return;
+	Span<const EntityRef> selected = m_editor.getSelectedEntities();
+	if (selected.size() == 0) return;
 
 	World& world = *editor.getWorld();
 	RenderModule& module = *(RenderModule*)world.getModule(MODEL_INSTANCE_TYPE);
@@ -928,11 +927,10 @@ void SceneView::toggleWireframe() {
 }
 
 void SceneView::rotate90Degrees() {
-	const Array<EntityRef>& selected_entities = m_app.getWorldEditor().getSelectedEntities();
 	WorldEditor& editor = m_app.getWorldEditor();
 	World& world = *editor.getWorld();
 	editor.beginCommandGroup("rot90deg");
-	for (EntityRef e : selected_entities) {
+	for (EntityRef e : editor.getSelectedEntities()) {
 		Quat rot = world.getRotation(e);
 		float yaw = rot.toEuler().y;
 		yaw += PI * 0.5f; // next turn
@@ -946,7 +944,6 @@ void SceneView::rotate90Degrees() {
 }
 
 void SceneView::moveEntity(Vec2 v) {
-	const Array<EntityRef>& selected_entities = m_app.getWorldEditor().getSelectedEntities();
 	Vec3 V = m_view->m_viewport.rot * Vec3(0, 0, -1);  
 	if (fabsf(V.x) > fabsf(V.z)) {
 		V = {signum(V.x), 0, 0};
@@ -964,7 +961,7 @@ void SceneView::moveEntity(Vec2 v) {
 	WorldEditor& editor = m_app.getWorldEditor();
 	World& world = *editor.getWorld();
 	editor.beginCommandGroup("rot90deg");
-	for (EntityRef e : selected_entities) {
+	for (EntityRef e : editor.getSelectedEntities()) {
 		DVec3 pos = world.getPosition(e);
 		pos += V * v.y + S * v.x;
 		// round position to multiple of step
@@ -979,8 +976,8 @@ void SceneView::moveEntity(Vec2 v) {
 
 void SceneView::manipulate() {
 	PROFILE_FUNCTION();
-	const Array<EntityRef>* selected = &m_editor.getSelectedEntities();
-	if (selected->empty()) return;
+	Span<const EntityRef> selected = m_editor.getSelectedEntities();
+	if (selected.size() == 0) return;
 
 	const bool is_anisotropic_scale = m_anisotropic_scale_action.isActive();
 	Gizmo::Config& cfg = m_app.getGizmoConfig();
@@ -989,7 +986,7 @@ void SceneView::manipulate() {
 	const bool is_snap = m_toggle_gizmo_step_action.isActive();
 	cfg.enableStep(is_snap);
 		
-	Transform tr = m_editor.getWorld()->getTransform((*selected)[0]);
+	Transform tr = m_editor.getWorld()->getTransform(selected[0]);
 	tr.pos += tr.rot.rotate(cfg.getOffset());
 	const Transform old_pivot_tr = tr;
 			
@@ -999,20 +996,20 @@ void SceneView::manipulate() {
 	}
 
 	if (m_view->isMouseClick(os::MouseButton::LEFT)) cfg.ungrab();
-	if (!Gizmo::manipulate((*selected)[0].index, *m_view, tr, cfg)) return;
+	if (!Gizmo::manipulate(selected[0].index, *m_view, tr, cfg)) return;
 
 	if (copy_move && !m_copy_moved) {
 		m_editor.copyEntities();
 		m_editor.pasteEntities(&tr.pos);
-		selected = &m_editor.getSelectedEntities();
-		Gizmo::setDragged((*selected)[0].index);
+		selected = m_editor.getSelectedEntities();
+		Gizmo::setDragged(selected[0].index);
 		m_copy_moved = true;
 	}
 
 	// keep only topmost entities in selection
 	Array<EntityRef> filtered_selection(m_app.getAllocator());
 	World& world = *m_editor.getWorld();
-	for (EntityRef& e : *selected) {
+	for (EntityRef e : selected) {
 		bool is_topmost = true;
 		for (u32 i = 0; i < (u32)filtered_selection.size(); ++i) {
 			if (world.isDescendant(e, filtered_selection[i])) {
@@ -1154,6 +1151,8 @@ void SceneView::handleDrop(const char* path, float x, float y)
 
 	const ResourceType type = m_app.getAssetCompiler().getResourceType(path);
 
+	ResourceType physics_geom_type("physics_geometry");
+
 	if (type == ParticleSystemResource::TYPE) {
 		const DVec3 pos = hit.origin + (hit.is_hit ? hit.t : 5) * hit.dir;
 		
@@ -1196,7 +1195,7 @@ void SceneView::handleDrop(const char* path, float x, float y)
 		m_editor.setProperty(MODEL_INSTANCE_TYPE, "", -1, "Source", Span(&entity, 1), Path(path));
 		m_editor.endCommandGroup();
 	}
-	else if (type == PhysicsGeometry::TYPE) {
+	else if (type == physics_geom_type) {
 		if (hit.is_hit && hit.entity.isValid())
 		{
 			m_editor.beginCommandGroup("insert_phy_component");
@@ -1227,18 +1226,26 @@ void SceneView::onToolbar()
 		&m_translate_gizmo_mode,
 		&m_rotate_gizmo_mode,
 		&m_scale_gizmo_mode,
+		nullptr,
 		&m_local_coord_gizmo,
 		&m_global_coord_gizmo,
-		&m_top_view_action,
-		&m_front_view_action,
-		&m_side_view_action,
+		nullptr,
+		// &m_top_view_action,
+		// &m_front_view_action,
+		// &m_side_view_action,
 	};
 
 	auto pos = ImGui::GetCursorScreenPos();
 	const float toolbar_height = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().FramePadding.y * 2;
 	if (ImGuiEx::BeginToolbar("scene_view_toolbar", pos, ImVec2(0, toolbar_height))) {
 		for (Action* action : actions) {
-			action->toolbarButton(m_app.getBigIconFont());
+			if (action) {
+				action->toolbarButton(m_app.getBigIconFont());
+			}
+			else {
+				ImGui::SameLine();
+				ImGuiEx::VSeparator(3);
+			}
 		}
 	}
 
@@ -1269,24 +1276,20 @@ void SceneView::onToolbar()
 	}
 
 	ImGui::SameLine();
-	pos = ImGui::GetCursorPos();
-	ImGui::SetCursorPos(pos);
-	ImGui::TextUnformatted(mode_action->font_icon);
+	float step = m_app.getGizmoConfig().getStep();
+	if (ImGuiEx::ToolbarButton(m_app.getBigIconFont(), ICON_FA_EYE, bg_color, "View")) ImGui::OpenPopup("Debug");
 
 	ImGui::SameLine();
-	pos = ImGui::GetCursorPos();
-	pos.y += offset;
-	ImGui::SetCursorPos(pos);
-	float step = m_app.getGizmoConfig().getStep();
-	// TODO followin two widgets are not valigned
-	if (ImGui::DragFloat("##gizmoStep", &step, 1.0f, 0, 200))
-	{
+	ImGuiEx::VSeparator(3);
+
+	ImGui::SameLine();
+	ImGui::TextUnformatted(mode_action->font_icon);
+	ImGui::SameLine();
+	if (ImGui::DragFloat("##gizmoStep", &step, 1.0f, 0, 200)) {
 		m_app.getGizmoConfig().setStep(step);
 	}
-	if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", "Snap amount");
-
-	ImGui::SameLine();
-	if (ImGui::Button("Debug")) ImGui::OpenPopup("Debug");
+	ImGui::SetItemTooltip("%s", "Snap amount");
+	
 	if (ImGui::BeginPopup("Debug")) {
 		auto option = [&](const char* label, Pipeline::DebugShow value) {
 			StaticString<64> tmp(label);
@@ -1398,7 +1401,12 @@ void SceneView::handleEvents() {
 void SceneView::insertModelUI() {
 	if (m_insert_model_request) ImGui::OpenPopup("Insert model");
 
-	if (ImGuiEx::BeginResizablePopup("Insert model", ImVec2(300, 200), ImGuiWindowFlags_NoNavInputs)) {
+	ImVec2 pos = {(float)m_screen_x, (float)m_screen_y};
+	ImVec2 size = {(float)m_width, (float)m_height};
+	ImGui::SetNextWindowPos(pos + size * 0.2f);
+	ImGui::SetNextWindowSize(size * 0.6f, ImGuiCond_Always);
+
+	if (ImGui::BeginPopup("Insert model", ImGuiWindowFlags_NoNavInputs)) {
 		if (ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
 
 		ImGui::AlignTextToFramePadding();
@@ -1409,11 +1417,12 @@ void SceneView::insertModelUI() {
 		}
 		ImGui::SameLine();
 		if(m_insert_model_request) m_search_selected = 0;
-		if (m_filter.gui(ICON_FA_SEARCH " Search", -1, m_insert_model_request)) {
+		if (m_filter.gui("Search", -1, m_insert_model_request, nullptr, false)) {
 			m_search_selected = 0;
 		}
 		bool scroll = false;
 		const bool insert_enter = ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter);
+		ImGui::Separator();
 		if (ImGui::IsItemFocused()) {
 			if (ImGui::IsKeyPressed(ImGuiKey_UpArrow) && m_search_selected > 0) {
 				--m_search_selected;
@@ -1450,7 +1459,7 @@ void SceneView::insertModelUI() {
 					const bool selected = idx == m_search_selected;
 					if (m_search_preview) {
 						ImGui::SameLine();
-						if (idx == 0 || ImGui::GetContentRegionAvail().x < 50) ImGui::NewLine();
+						if (idx == 0 || ImGui::GetContentRegionAvail().x < ab.getThumbnailWidth()) ImGui::NewLine();
 						ab.tile(res.path, selected);
 						if (ImGui::IsItemClicked() || (insert_enter && selected)) {
 							insert(res.path);
@@ -1484,7 +1493,7 @@ void SceneView::cameraPreviewGUI(Vec2 size) {
 	if (size.x <= 0) return;
 	if (size.y <= 0) return;
 
-	const Array<EntityRef>& selected = m_editor.getSelectedEntities();
+	Span<const EntityRef> selected = m_editor.getSelectedEntities();
 	if (selected.size() != 1) return;
 
 	World* world = m_editor.getWorld();
@@ -1513,8 +1522,8 @@ void SceneView::cameraPreviewGUI(Vec2 size) {
 
 void SceneView::snapDown() {
 	WorldEditor& editor = m_app.getWorldEditor();
-	const Array<EntityRef>& selected = editor.getSelectedEntities();
-	if (selected.empty()) return;
+	Span<const EntityRef> selected = editor.getSelectedEntities();
+	if (selected.size() == 0) return;
 
 	Array<DVec3> new_positions(m_app.getAllocator());
 	World* world = editor.getWorld();
@@ -1539,7 +1548,7 @@ void SceneView::snapDown() {
 }
 
 static void selectParent(WorldEditor& editor) {
-	const Array<EntityRef>& selected = editor.getSelectedEntities();
+	Span<const EntityRef> selected = editor.getSelectedEntities();
 	if (selected.size() != 1) return;
 
 	const EntityPtr parent = editor.getWorld()->getParent(selected[0]);
@@ -1550,7 +1559,7 @@ static void selectParent(WorldEditor& editor) {
 }
 
 static void selectFirstChild(WorldEditor& editor) {
-	const Array<EntityRef>& selected = editor.getSelectedEntities();
+	Span<const EntityRef> selected = editor.getSelectedEntities();
 	if (selected.size() != 1) return;
 
 	const EntityPtr child = editor.getWorld()->getFirstChild(selected[0]);
@@ -1561,7 +1570,7 @@ static void selectFirstChild(WorldEditor& editor) {
 }
 
 static void selectNextSibling(WorldEditor& editor) {
-	const Array<EntityRef>& selected = editor.getSelectedEntities();
+	Span<const EntityRef> selected = editor.getSelectedEntities();
 	if (selected.size() != 1) return;
 
 	const EntityPtr sibling = editor.getWorld()->getNextSibling(selected[0]);
@@ -1572,7 +1581,7 @@ static void selectNextSibling(WorldEditor& editor) {
 }
 
 static void selectPrevSibling(WorldEditor& editor) {
-	const Array<EntityRef>& selected = editor.getSelectedEntities();
+	Span<const EntityRef> selected = editor.getSelectedEntities();
 	if (selected.size() != 1) return;
 
 	const World& world = *editor.getWorld();

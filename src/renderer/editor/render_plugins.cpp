@@ -3148,7 +3148,7 @@ struct CodeEditorWindow : AssetEditorWindow {
 						m_disassembly_view->setReadOnly(true);
 					}
 					else {
-						m_disassembly_view->gui("disasm");
+						m_disassembly_view->gui("disasm", ImVec2(0, 0), m_app.getMonospaceFont(), m_app.getDefaultFont());
 					}
 				}
 			}
@@ -3172,9 +3172,7 @@ struct CodeEditorWindow : AssetEditorWindow {
 			ImGui::EndMenuBar();
 		}
 
-		ImGui::PushFont(m_app.getMonospaceFont());
-		if (m_editor->gui("codeeditor")) m_dirty = true;
-		ImGui::PopFont();
+		if (m_editor->gui("codeeditor", ImVec2(0, 0), m_app.getMonospaceFont(), m_app.getDefaultFont())) m_dirty = true;
 	}
 	
 	const Path& getPath() override { return m_path; }
@@ -4041,7 +4039,7 @@ struct InstancedModelPlugin final : PropertyGrid::IPlugin, StudioApp::MousePlugi
 
 	Component getComponent() {
 		WorldEditor& editor = m_app.getWorldEditor();
-		const Array<EntityRef>& selected_entities = editor.getSelectedEntities();
+		Span<const EntityRef> selected_entities = editor.getSelectedEntities();
 		if (selected_entities.size() != 1) return { nullptr };
 
 		World& world = *editor.getWorld();
@@ -4454,7 +4452,7 @@ struct ProceduralGeomPlugin final : PropertyGrid::IPlugin, StudioApp::MousePlugi
 		if (!m_is_open) return false;
 
 		WorldEditor& editor = view.getEditor();
-		const Array<EntityRef>& selected = editor.getSelectedEntities();
+		Span<const EntityRef> selected = editor.getSelectedEntities();
 		if (selected.size() != 1) return false;
 
 		const EntityRef entity = selected[0];
@@ -4799,7 +4797,7 @@ struct RenderInterfaceImpl final : RenderInterface
 	}
 
 
-	WorldView::RayHit castRay(World& world, const Ray& ray, EntityPtr ignored) override
+	RayHit castRay(World& world, const Ray& ray, EntityPtr ignored) override
 	{
 		RenderModule* module = (RenderModule*)world.getModule(ENVIRONMENT_PROBE_TYPE);
 		const RayCastModelHit hit = module->castRay(ray, ignored);
@@ -5247,7 +5245,7 @@ struct AddTerrainComponentPlugin final : StudioApp::IAddComponentPlugin {
 				EntityRef entity = editor.addEntity();
 				editor.selectEntities(Span(&entity, 1), false);
 			}
-			if (editor.getSelectedEntities().empty()) return;
+			if (editor.getSelectedEntities().size() == 0) return;
 			EntityRef entity = editor.getSelectedEntities()[0];
 
 			if (!editor.getWorld()->hasComponent(entity, TERRAIN_TYPE))

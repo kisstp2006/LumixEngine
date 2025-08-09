@@ -4,6 +4,7 @@
 
 #include "audio/audio_module.h"
 #include "core/associative_array.h"
+#include "core/allocator.h"
 #include "core/atomic.h"
 #include "core/color.h"
 #include "core/command_line_parser.h"
@@ -36,9 +37,12 @@
 #include "log_ui.h"
 #include "profiler_ui.h"
 #include "property_grid.h"
-#include "renderer/gpu/gpu.h"
-#include "renderer/renderer.h"
-#include "renderer/shader.h"
+// with dynamic plaugins, editor can't depend on renderer (since renderer already depends on editor)
+#ifdef STATIC_PLUGINS
+	#include "renderer/gpu/gpu.h"
+	#include "renderer/renderer.h"
+	#include "renderer/shader.h"
+#endif
 #include "settings.h"
 #include "studio_app.h"
 #include "utils.h"
@@ -108,7 +112,7 @@ struct StudioAppImpl final : StudioApp {
 			ImGui::PopStyleColor();			
 		}
 
-		void showHierarchy(EntityRef entity, const Array<EntityRef>& selected_entities, Span<const EntityRef> selection_chain) {
+		void showHierarchy(EntityRef entity, Span<const EntityRef> selected_entities, Span<const EntityRef> selection_chain) {
 			WorldEditor& editor = m_app.getWorldEditor();
 			World* world = editor.getWorld();
 			bool is_selected = selected_entities.indexOf(entity) >= 0;
@@ -184,7 +188,7 @@ struct StudioAppImpl final : StudioApp {
 					}
 
 					if (auto* payload = ImGui::AcceptDragDropPayload("selected_entities")) {
-						const Array<EntityRef>& selected = editor.getSelectedEntities();
+						Span<const EntityRef> selected = editor.getSelectedEntities();
 						for (EntityRef e : selected) {
 							if (e != entity) {
 								editor.makeParent(entity, e);
@@ -204,7 +208,7 @@ struct StudioAppImpl final : StudioApp {
 					getEntityListDisplayName(m_app, *world, Span(buffer), entity);
 					ImGui::TextUnformatted(buffer);
 					
-					const Array<EntityRef>& selected = editor.getSelectedEntities();
+					Span<const EntityRef> selected = editor.getSelectedEntities();
 					if (selected.size() > 0 && selected.indexOf(entity) >= 0) {
 						ImGui::SetDragDropPayload("selected_entities", nullptr, 0);
 					}
@@ -286,8 +290,8 @@ struct StudioAppImpl final : StudioApp {
 				}
 
 				if (auto* payload = ImGui::AcceptDragDropPayload("selected_entities")) {
-					const Array<EntityRef>& selected = editor.getSelectedEntities();
-					if (!selected.empty()) {
+					Span<const EntityRef> selected = editor.getSelectedEntities();
+					if (selected.size() != 0) {
 						editor.beginCommandGroup("move_entities_to_folder_group");
 						for (EntityRef e : selected) {
 							editor.makeParent(INVALID_ENTITY, e);
@@ -440,15 +444,15 @@ struct StudioAppImpl final : StudioApp {
 				ImGui::EndPopup();
 			}
 
-			const Array<EntityRef>& entities = editor.getSelectedEntities();
+			Span<const EntityRef> entities = editor.getSelectedEntities();
 			static TextFilter filter;
 			if (!m_is_open) return;
 
 			if (m_request_focus_filter) ImGui::SetNextWindowFocus();
 			if (ImGui::Begin(ICON_FA_STREAM "Hierarchy##hierarchy", &m_is_open)) {
 				if (m_app.checkShortcut(m_app.m_common_actions.rename)) {
-					const Array<EntityRef>& selected_entities = editor.getSelectedEntities();
-					m_renaming_entity = selected_entities.empty() ? INVALID_ENTITY : selected_entities[0];
+					Span<const EntityRef> selected_entities = editor.getSelectedEntities();
+					m_renaming_entity = selected_entities.size() == 0 ? INVALID_ENTITY : selected_entities[0];
 					if (m_renaming_entity.isValid()) {
 						m_set_rename_focus = true;
 						const char* name = editor.getWorld()->getEntityName(selected_entities[0]);
@@ -463,10 +467,11 @@ struct StudioAppImpl final : StudioApp {
 				
 				bool select_first = false;
 				World* world = editor.getWorld();
-				filter.gui(ICON_FA_SEARCH "Filter", -1, false, &m_focus_filter_action);
+				filter.gui("Filter", -1, false, &m_focus_filter_action, false);
 				if (ImGui::IsItemDeactivatedAfterEdit() && ImGui::IsKeyPressed(ImGuiKey_Enter)) {
 					select_first = true;
 				}
+				ImGui::Separator();
 
 				if (ImGui::BeginChild("entities")) {
 					ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x);
@@ -511,7 +516,7 @@ struct StudioAppImpl final : StudioApp {
 					} else {
 						EntityFolders& folders = editor.getEntityFolders();
 						Array<EntityRef> selection_chain(m_app.getAllocator());
-						if (m_entity_selection_changed && !editor.getSelectedEntities().empty()) {
+						if (m_entity_selection_changed && editor.getSelectedEntities().size() != 0) {
 							getSelectionChain(selection_chain, editor.getSelectedEntities()[0]);
 							m_entity_selection_changed = false;
 						}
@@ -745,7 +750,9 @@ struct StudioAppImpl final : StudioApp {
 	}
 
 	void onShutdown() {
-		if (m_welcome_shader) m_welcome_shader->decRefCount();
+		#ifdef STATIC_PLUGINS
+			if (m_welcome_shader) m_welcome_shader->decRefCount();
+		#endif
 
 		while (m_engine->getFileSystem().hasWork()) {
 			m_engine->getFileSystem().processCallbacks();
@@ -943,6 +950,7 @@ struct StudioAppImpl final : StudioApp {
 		m_settings.registerOption("sleep_when_inactive", &m_sleep_when_inactive, "General", "Sleep when inactive");
 		m_settings.registerOption("fileselector_dir", &m_file_selector.m_current_dir);
 		m_settings.registerOption("font_size", &m_font_size, "General", "Font size");
+		m_settings.registerOption("code_editor_font_size", &CodeEditor::s_font_size, "General", "Code editor font size");
 		m_settings.registerOption("export_pack", &m_export.pack);
 		m_settings.registerOption("export_dir", &m_export.dest_dir);
 		m_settings.registerOption("gizmo_scale", &m_gizmo_config.scale, "General", "Gizmo scale");
@@ -1001,7 +1009,9 @@ struct StudioAppImpl final : StudioApp {
 			logInfo(os::getTimeSinceProcessStart(), " s since process started");
 		#endif
 
-		m_welcome_shader = m_engine->getResourceManager().load<Shader>(Path("shaders/welcome.hlsl"));
+		#ifdef STATIC_PLUGINS
+			m_welcome_shader = m_engine->getResourceManager().load<Shader>(Path("shaders/welcome.hlsl"));
+		#endif
 	}
 
 	void loadLogo() {
@@ -1124,7 +1134,7 @@ struct StudioAppImpl final : StudioApp {
 						editor.selectEntities(Span(&entity, 1), false);
 					}
 
-					const Array<EntityRef>& selected = editor.getSelectedEntities();
+					Span<const EntityRef> selected = editor.getSelectedEntities();
 					editor.addComponent(selected, type);
 					if (parent.isValid()) editor.makeParent(parent, selected[0]);
 					editor.endCommandGroup();
@@ -1258,8 +1268,8 @@ struct StudioAppImpl final : StudioApp {
 	}
 
 	void showGizmos() {
-		const Array<EntityRef>& ents = m_editor->getSelectedEntities();
-		if (ents.empty()) return;
+		Span<const EntityRef> ents = m_editor->getSelectedEntities();
+		if (ents.size() == 0) return;
 
 		World* world = m_editor->getWorld();
 
@@ -1285,7 +1295,7 @@ struct StudioAppImpl final : StudioApp {
 	}
 
 	void updateGizmoOffset() {
-		const Array<EntityRef>& ents = m_editor->getSelectedEntities();
+		Span<const EntityRef> ents = m_editor->getSelectedEntities();
 		if (ents.size() != 1) {
 			m_gizmo_config.offset = Vec3::ZERO;
 			return;
@@ -1429,55 +1439,7 @@ struct StudioAppImpl final : StudioApp {
 		initDefaultWorld();
 	}
 
-	static gpu::ProgramHandle createCustomImGuiShader(Engine& engine, const char* src) {
-		StackAllocator<4096, 1>  allocator(engine.getAllocator());
-		OutputMemoryStream blob(allocator);
-		blob << R"#(struct VSInput {
-			float2 pos : TEXCOORD0;
-			float2 uv : TEXCOORD1;
-			float4 color : TEXCOORD2;
-		};
-
-		cbuffer ImGuiState : register(b4) {
-			float2 c_scale;
-			float2 c_offset;
-			uint c_texture;
-			float c_time;
-		};
-
-		struct VSOutput {
-			float4 color : TEXCOORD0;
-			float2 uv : TEXCOORD1;
-			float4 position : SV_POSITION;
-		};
-
-		VSOutput mainVS(VSInput input) {
-			VSOutput output;
-			output.color = input.color;
-			output.uv = input.uv;
-			float2 p = input.pos * c_scale + c_offset;
-			output.position = float4(p.xy, 0, 1);
-			return output;
-		}
-
-		float4 mainPS(VSOutput input) : SV_Target {
-		)#";
-		blob << src;
-		blob << "}\n";
-		blob.write(0);
-		
-		gpu::ProgramHandle program = gpu::allocProgramHandle();
-		Renderer* renderer = (Renderer*)engine.getSystemManager().getSystem("renderer");
-		DrawStream& draw_stream = renderer->getDrawStream();
-		gpu::VertexDecl decl(gpu::PrimitiveType::TRIANGLES);
-		decl.addAttribute(0, 2, gpu::AttributeType::FLOAT, 0);
-		decl.addAttribute(8, 2, gpu::AttributeType::FLOAT, 0);
-		decl.addAttribute(16, 4, gpu::AttributeType::U8, gpu::Attribute::NORMALIZED);
-		const gpu::StateFlags state = gpu::getBlendStateBits(gpu::BlendFactors::SRC_ALPHA, gpu::BlendFactors::ONE_MINUS_SRC_ALPHA, gpu::BlendFactors::SRC_ALPHA, gpu::BlendFactors::ONE_MINUS_SRC_ALPHA);
-		draw_stream.createProgram(program, state, decl, (const char*)blob.data(), gpu::ShaderType::SURFACE, nullptr, 0, "custom imgui");
-		return program;
-	}
-
+	#ifdef STATIC_PLUGINS
 	// draw imgui rect with custom shader
 	static void shaderRect(Engine& engine, gpu::ProgramHandle program, ImVec2 size) {
 		Renderer* renderer = (Renderer*)engine.getSystemManager().getSystem("renderer");
@@ -1510,6 +1472,7 @@ struct StudioAppImpl final : StudioApp {
 
 		dl->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
 	}
+	#endif
 
 	void guiWelcomeScreen() {
 		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
@@ -1518,18 +1481,20 @@ struct StudioAppImpl final : StudioApp {
 		ImGui::SetNextWindowSize(viewport->WorkSize);
 		ImGui::SetNextWindowViewport(viewport->ID);
 		if (ImGui::Begin("Welcome", nullptr, flags)) {
-			// backgrounnd shader
-			if (m_welcome_shader->isReady() && m_welcome_screen_use_shader) {
-				ImGui::SetCursorPos(ImVec2(0, 0));
-				ImVec2 size = ImGui::GetContentRegionAvail();
-				gpu::VertexDecl decl(gpu::PrimitiveType::TRIANGLES);
-				decl.addAttribute(0, 2, gpu::AttributeType::FLOAT, 0);
-				decl.addAttribute(8, 2, gpu::AttributeType::FLOAT, 0);
-				decl.addAttribute(16, 4, gpu::AttributeType::U8, gpu::Attribute::NORMALIZED);
-				const gpu::StateFlags state = gpu::getBlendStateBits(gpu::BlendFactors::SRC_ALPHA, gpu::BlendFactors::ONE_MINUS_SRC_ALPHA, gpu::BlendFactors::SRC_ALPHA, gpu::BlendFactors::ONE_MINUS_SRC_ALPHA);
-				gpu::ProgramHandle program = m_welcome_shader->getProgram(state, decl, 0, 0);
-				shaderRect(*m_engine, program, size);
-			}
+			// background shader
+			#ifdef STATIC_PLUGINS
+				if (m_welcome_shader->isReady() && m_welcome_screen_use_shader) {
+					ImGui::SetCursorPos(ImVec2(0, 0));
+					ImVec2 size = ImGui::GetContentRegionAvail();
+					gpu::VertexDecl decl(gpu::PrimitiveType::TRIANGLES);
+					decl.addAttribute(0, 2, gpu::AttributeType::FLOAT, 0);
+					decl.addAttribute(8, 2, gpu::AttributeType::FLOAT, 0);
+					decl.addAttribute(16, 4, gpu::AttributeType::U8, gpu::Attribute::NORMALIZED);
+					const gpu::StateFlags state = gpu::getBlendStateBits(gpu::BlendFactors::SRC_ALPHA, gpu::BlendFactors::ONE_MINUS_SRC_ALPHA, gpu::BlendFactors::SRC_ALPHA, gpu::BlendFactors::ONE_MINUS_SRC_ALPHA);
+					gpu::ProgramHandle program = m_welcome_shader->getProgram(state, decl, 0, 0);
+					shaderRect(*m_engine, program, size);
+				}
+			#endif
 
 			#ifdef _WIN32
 				if (!m_use_native_titlebar) {
@@ -1694,8 +1659,8 @@ struct StudioAppImpl final : StudioApp {
 
 	void destroySelectedEntity()
 	{
-		auto& selected_entities = m_editor->getSelectedEntities();
-		if (selected_entities.empty()) return;
+		Span<const EntityRef> selected_entities = m_editor->getSelectedEntities();
+		if (selected_entities.size() == 0) return;
 		m_editor->destroyEntities(&selected_entities[0], selected_entities.size());
 	}
 
@@ -1760,7 +1725,7 @@ struct StudioAppImpl final : StudioApp {
 		if (!ImGui::BeginMenu("Entity")) return;
 
 		const auto& selected_entities = m_editor->getSelectedEntities();
-		bool is_any_entity_selected = !selected_entities.empty();
+		bool is_any_entity_selected = selected_entities.size() != 0;
 		if (ImGuiEx::BeginMenuEx("Create", ICON_FA_PLUS_SQUARE))
 		{
 			onCreateEntityWithComponentGUI(INVALID_ENTITY);
@@ -1800,7 +1765,7 @@ struct StudioAppImpl final : StudioApp {
 	{
 		if (!ImGui::BeginMenu("Edit")) return;
 
-		bool is_any_entity_selected = !m_editor->getSelectedEntities().empty();
+		bool is_any_entity_selected = !m_editor->getSelectedEntities().size() == 0;
 		menuItem("undo", m_editor->canUndo());
 		menuItem("redo", m_editor->canRedo());
 		ImGui::Separator();
@@ -1875,7 +1840,7 @@ struct StudioAppImpl final : StudioApp {
 	void toolsMenu() {
 		if (!ImGui::BeginMenu("Tools")) return;
 
-		bool is_any_entity_selected = !m_editor->getSelectedEntities().empty();
+		bool is_any_entity_selected = m_editor->getSelectedEntities().size() != 0;
 		menuItem("asset_browser_focus_search", true);
 		menuItem("entity_snap_down", is_any_entity_selected);
 		menuItem("autosnap_down", true);
@@ -2226,7 +2191,7 @@ struct StudioAppImpl final : StudioApp {
 
 			m_font = addFontFromFile("editor/fonts/Roboto-Light.ttf", (float)m_font_size * font_scale, true);
 			m_bold_font = addFontFromFile("editor/fonts/Roboto-Bold.ttf", (float)m_font_size * font_scale, true);
-			m_monospace_font = addFontFromFile("editor/fonts/sourcecodepro-regular.ttf", (float)m_font_size * font_scale, false);
+			m_monospace_font = addFontFromFile("editor/fonts/JetBrainsMono-Regular.ttf", (float)m_font_size * font_scale, false);
 
 			OutputMemoryStream data(m_allocator);
 			if (fs.getContentSync(Path("editor/fonts/fa-solid-900.ttf"), data)) {
@@ -2265,7 +2230,7 @@ struct StudioAppImpl final : StudioApp {
 	void setRenderInterface(RenderInterface* ri) override { m_render_interface = ri; }
 	RenderInterface* getRenderInterface() override { return m_render_interface; }
 
-	float getFOV() const override { return m_fov; }
+	float getFOV() const override { return clamp(m_fov, degreesToRadians(1.f), degreesToRadians(175.f)); }
 	void setFOV(float fov_radians) override { m_fov = fov_radians; }
 	Settings& getSettings() override { return m_settings; }
 
@@ -2663,15 +2628,10 @@ struct StudioAppImpl final : StudioApp {
 			if (ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
 
 			if(m_open_commands_palette) m_all_actions_selected = 0;
-			ImGui::TextUnformatted(ICON_FA_SEARCH);
-			ImGui::SameLine();
 		
-			ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
-			ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
-			if (m_all_actions_filter.gui("Search", -1, m_open_commands_palette)) {
+			if (m_all_actions_filter.gui("Search", -1, m_open_commands_palette, nullptr, false)) {
 				m_all_actions_selected = 0;
 			}
-			ImGui::PopStyleColor(2);
 			const bool insert_enter = ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter);
 			bool moved = false;
 			if (ImGui::IsItemFocused()) {
@@ -3160,7 +3120,9 @@ struct StudioAppImpl final : StudioApp {
 	ImFont* m_bold_font;
 	ImFont* m_monospace_font;
 	ImGuiID m_dockspace_id = 0;
-	Shader* m_welcome_shader = nullptr;
+	#ifdef STATIC_PLUGINS	
+		Shader* m_welcome_shader = nullptr;
+	#endif
 
 	struct WatchedPlugin {
 		UniquePtr<FileSystemWatcher> watcher;

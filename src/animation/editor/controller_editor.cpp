@@ -338,7 +338,8 @@ struct ControllerEditorImpl : ControllerEditor, AssetBrowser::IPlugin, AssetComp
 		void onContextMenu(ImVec2 pos) override {
 			if (ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
 			if (ImGui::IsWindowAppearing()) m_node_filter_selection = 0;
-			if (m_node_filter.gui("Filter", 150, ImGui::IsWindowAppearing())) m_node_filter_selection = 0;
+			if (m_node_filter.gui("Filter", 250, ImGui::IsWindowAppearing())) m_node_filter_selection = 0;
+			ImGui::Separator();
 			if (m_node_filter.isActive()) {
 				struct : INodeTypeVisitor {
 					bool beginCategory(const char* _category) override {
@@ -475,9 +476,9 @@ struct ControllerEditorImpl : ControllerEditor, AssetBrowser::IPlugin, AssetComp
 		}
 
 		void debuggerUI() {
-			const Array<EntityRef>& selected = m_app.getWorldEditor().getSelectedEntities();
+			Span<const EntityRef> selected = m_app.getWorldEditor().getSelectedEntities();
 			World& world = *m_app.getWorldEditor().getWorld();
-			if (selected.empty()) {
+			if (selected.size() == 0) {
 				ImGui::TextUnformatted("No entity selected");
 				return;
 			}

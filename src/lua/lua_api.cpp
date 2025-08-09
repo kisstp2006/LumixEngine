@@ -602,6 +602,7 @@ static const char* LUA_getFunctionArgType(reflection::FunctionBase* fnc, u32 arg
 		case reflection::Variant::ENTITY: return "EntityPtr";
 		case reflection::Variant::VEC2: return "Vec2";
 		case reflection::Variant::VEC3: return "Vec3";
+		case reflection::Variant::VEC4: return "Vec4";
 		case reflection::Variant::DVEC3: return "DVec3";
 		case reflection::Variant::COLOR: return "Color";
 		case reflection::Variant::QUAT: return "Quat";
@@ -1124,6 +1125,8 @@ void registerEngineAPI(lua_State* L, Engine* engine)
 				return LumixAPI.getEntityScale(table._world, table._entity)
 			elseif key == "world" then
 				return Lumix.World:new(table._world)
+			elseif key == "_world" or key == "_entity" then
+				return rawget(table, key)
 			elseif Lumix.Entity[key] ~= nil then
 				return Lumix.Entity[key]
 			else 
@@ -1186,8 +1189,8 @@ void registerEngineAPI(lua_State* L, Engine* engine)
 		function Lumix.World:createPartition(name)
 			return LumixAPI.createPartition(self.value, name)
 		end
-		function Lumix.World:instantiatePrefab(position, prefab_id)
-			return LumixAPI.instantiatePrefab(self, position, prefab_id)
+		function Lumix.World:instantiatePrefab(position, prefab)
+			return LumixAPI.instantiatePrefab(self, position, prefab._handle)
 		end
 		function Lumix.World:createEntity()
 			local e = LumixAPI.createEntity(self.value)

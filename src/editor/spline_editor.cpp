@@ -51,7 +51,7 @@ struct SplineEditorPlugin : SplineEditor, StudioApp::MousePlugin, PropertyGrid::
 
 	EntityPtr getSplineEntity() {
 		WorldEditor& editor = m_app.getWorldEditor();
-		const Array<EntityRef>& selected = editor.getSelectedEntities();
+		Span<const EntityRef> selected = editor.getSelectedEntities();
 		if (selected.size() != 1) return INVALID_ENTITY;
 		
 		if (editor.getWorld()->hasComponent(selected[0], SPLINE_TYPE)) return selected[0];
@@ -79,7 +79,7 @@ struct SplineEditorPlugin : SplineEditor, StudioApp::MousePlugin, PropertyGrid::
 			}
 		}
 
-		WorldView::RayHit hit = view.getCameraRaycastHit(x, y, INVALID_ENTITY);
+		RayHit hit = view.getCameraRaycastHit(x, y, INVALID_ENTITY);
 		if (hit.is_hit) {
 			CoreModule* module = (CoreModule*)world->getModule(SPLINE_TYPE);
 			Spline& hit_spline = module->getSpline(e);
@@ -107,7 +107,7 @@ struct SplineEditorPlugin : SplineEditor, StudioApp::MousePlugin, PropertyGrid::
 
 	Spline* getSpline() const {
 		WorldEditor& editor = m_app.getWorldEditor();
-		const Array<EntityRef>& selected = editor.getSelectedEntities();
+		Span<const EntityRef> selected = editor.getSelectedEntities();
 		if (selected.size() != 1) return nullptr;
 
 		World* world = editor.getWorld();
