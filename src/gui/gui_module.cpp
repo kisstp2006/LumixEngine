@@ -309,6 +309,43 @@ struct GUIModuleImpl final : GUIModule {
 		if (rect.flags & GUIRect::IS_CLIP) draw.popClipRect();
 	}
 
+	GUIRayHit raycast(const Ray& ray) override {
+		for (const GUICanvas& canvas : m_canvas) {
+			auto iter = m_rects.find(canvas.entity);
+			if (iter.isValid()) {
+				const Transform& transform = m_world.getTransform(canvas.entity);
+				const Vec3 local_ray_origin = Vec3(transform.invTransform(ray.origin));
+				const Vec3 local_ray_dir = transform.invTransformVector(ray.dir);
+
+				auto* rect = iter.value();
+				Rect gui_rect = getRectOnCanvas({0, 0, canvas.virtual_size.x, canvas.virtual_size.y}, *rect);
+
+				// Check intersection with the canvas plane (assuming Z=0)
+				if (fabsf(local_ray_dir.z) > 1e-6f) {
+					float t = -local_ray_origin.z / local_ray_dir.z;
+					if (t >= 0) {
+						Vec2 hit_local = local_ray_origin.xy() + local_ray_dir.xy() * t;
+
+						Vec2 canvas_pos(
+							hit_local.x * canvas.virtual_size.x + 0.5f * canvas.virtual_size.x,
+							hit_local.y * canvas.virtual_size.y + 0.5f * canvas.virtual_size.y
+						);
+
+						EntityPtr entity = getRectAt(*rect, canvas_pos, {0, 0, canvas.virtual_size.x, canvas.virtual_size.y}, INVALID_ENTITY);
+						if (entity.isValid()) {
+							return {
+								.entity = (EntityRef)entity,
+								.t = t
+							};
+						}
+					}
+				}
+			}
+		}
+		return {.entity = INVALID_ENTITY};
+	}
+
+
 	IVec2 getCursorPosition() override { return m_cursor_pos; }
 
 	void draw3D(GUICanvas& canvas, Pipeline& pipeline) {
@@ -338,7 +375,7 @@ struct GUIModuleImpl final : GUIModule {
 		}
 	}
 
-	void render(Pipeline& pipeline, const Vec2& canvas_size, bool is_main) override {
+	void render(Pipeline& pipeline, const Vec2& canvas_size, bool is_main, bool is_3d_only) override {
 		m_canvas_size = canvas_size;
 		if (is_main) {
 			m_cursor_type = os::CursorType::DEFAULT;
@@ -348,7 +385,7 @@ struct GUIModuleImpl final : GUIModule {
 			if (canvas.is_3d) {
 				draw3D(canvas, pipeline);
 			}
-			else {
+			else if (!is_3d_only) {
 				auto iter = m_rects.find(canvas.entity);
 				if (iter.isValid()) {
 					GUIRect* r = iter.value();
