@@ -1443,6 +1443,8 @@ struct StudioAppImpl final : StudioApp {
 		m_asset_browser->onBasePathChanged();
 		m_engine->getResourceManager().reloadAll();
 		initDefaultWorld();
+		loadSettings();
+		ImGui::LoadIniSettingsFromMemory(m_settings.m_imgui_state.c_str());
 	}
 
 	#ifdef STATIC_PLUGINS
@@ -1538,13 +1540,14 @@ struct StudioAppImpl final : StudioApp {
 					StringView sv = dir;
 					sv.removeSuffix(1); // remove trailing slash
 
+					changeBasePath(dir);
+					
 					m_recent_folders.eraseItems([&](const String& s){ return s == sv; });
 					if (m_recent_folders.size() > 10) {
 						m_recent_folders.pop();
 					}
 
 					m_recent_folders.insert(0, String(sv, m_allocator));
-					changeBasePath(dir);
 				}
 			}
 
@@ -2219,10 +2222,11 @@ struct StudioAppImpl final : StudioApp {
 
 			if (!m_font || !m_bold_font) {
 				os::messageBox(
-					"Could not open editor/fonts/Roboto-Light.ttf or editor/fonts/Roboto-Bold.ttf\n"
-					"It very likely means that data are not bundled with\n"
-					"the exe and the exe is not in the correct directory.\n"
-					"The program will eventually crash!"
+					"!! If you run from Visual Studio, set your working directory to 'data/' !!\n"
+					"Could not open editor/fonts/Roboto-Light.ttf or editor/fonts/Roboto-Bold.ttf.\n"
+					"This most likely means the data are not bundled with the executable,\n"
+					"or the executable is not in the correct directory.\n"
+					"The program will probably crash later."
 				);
 			}
 			if (!m_monospace_font) logError("Failed to load monospace font");
@@ -2715,7 +2719,7 @@ struct StudioAppImpl final : StudioApp {
 					if (m_command_palette_search_settings) {
 						m_settings.commandPaletteUI(m_all_actions_filter);
 					}
-					m_all_actions_selected = m_all_actions_selected > 0 ? m_all_actions_selected % idx : 0;
+					if (idx != 0) m_all_actions_selected = m_all_actions_selected > 0 ? m_all_actions_selected % idx : 0;
 				}
 				ImGui::PopStyleColor();
 				ImGui::EndChild();
