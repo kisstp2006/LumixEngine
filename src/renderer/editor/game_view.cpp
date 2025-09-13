@@ -235,12 +235,12 @@ void GameView::controlsGUI(WorldEditor& editor) {
 void GameView::onGUI() {
 	if (m_game_view_merged_with_scene_view) return;
 
-	const char* window_name = ICON_FA_CAMERA "Game View###game_view";
+	const char* window_label = ICON_FA_CAMERA "Game View###game_view";
 	if (m_is_mouse_captured) {
-		window_name = ICON_FA_CAMERA "Game View (mouse captured)###game_view";
+		window_label = ICON_FA_CAMERA "Game View (mouse captured)###game_view";
 	}
 
-	windowUI(window_name);
+	windowUI(window_label);
 }
 
 void GameView::windowUI(const char* window_name) {
@@ -264,10 +264,6 @@ void GameView::windowUI(const char* window_name) {
 		captureMouse(false);
 	}
 
-	if (m_is_mouse_captured) {
-		window_name = ICON_FA_CAMERA "Game View (mouse captured)###game_view";
-	}
-	
 	if (m_is_fullscreen) {
 		onFullscreenGUI(editor);
 		return;
@@ -288,7 +284,7 @@ void GameView::windowUI(const char* window_name) {
 
 		const ImVec2 content_min = ImGui::GetCursorScreenPos();
 		view_size = ImGui::GetContentRegionAvail();
-		view_size.y -= ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 3;
+		if (!m_game_view_merged_with_scene_view) view_size.y -= ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 3;
 		ImVec2 content_max(content_min.x + view_size.x, content_min.y + view_size.y);
 		if (m_forced_viewport.enabled) view_size = { (float)m_forced_viewport.width, (float)m_forced_viewport.height };
 		if (view_size.x > 0 && view_size.y > 0) {

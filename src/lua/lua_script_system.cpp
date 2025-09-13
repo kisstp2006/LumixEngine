@@ -815,6 +815,8 @@ struct LuaScriptModuleImpl final : LuaScriptModule {
 	LuaScriptModuleImpl(LuaScriptSystemImpl& system, World& world)
 		: m_system(system)
 		, m_world(world)
+		, m_deferred_destructions(system.m_allocator)
+		, m_deferred_partition_destructions(system.m_allocator)
 		, m_scripts(system.m_allocator)
 		, m_inline_scripts(system.m_allocator)
 		, m_updates(system.m_allocator)
@@ -1081,6 +1083,45 @@ struct LuaScriptModuleImpl final : LuaScriptModule {
 		return 0;
 	}
 
+	static int getInlineEnvironment(lua_State* L) {
+		if (!lua_istable(L, 1)) {
+			LuaWrapper::argError(L, 1, "entity");
+		}
+
+		if (LuaWrapper::getField(L, 1, "_entity") != LUA_TNUMBER) { 
+			lua_pop(L, 1);
+			LuaWrapper::argError(L, 1, "entity");
+		}
+
+		const EntityRef entity = {LuaWrapper::toType<i32>(L, -1)};
+		lua_pop(L, 1);
+
+		if (LuaWrapper::getField(L, 1, "_world") != LUA_TLIGHTUSERDATA) {
+			lua_pop(L, 1);
+			LuaWrapper::argError(L, 1, "entity");
+		}
+		
+		World* world = LuaWrapper::toType<World*>(L, -1);
+		lua_pop(L, 1);
+
+		if (!world->hasComponent(entity, LUA_SCRIPT_INLINE_TYPE)) {
+			lua_pushnil(L);
+			return 1;
+		}
+			
+		LuaScriptModule* module = (LuaScriptModule*)world->getModule(LUA_SCRIPT_TYPE);
+
+		int env = module->getInlineEnvironment(entity);
+		if (env < 0) {
+			lua_pushnil(L);
+		}
+		else {
+			lua_rawgeti(L, LUA_REGISTRYINDEX, env);
+			ASSERT(lua_type(L, -1) == LUA_TTABLE);
+		}
+		return 1;
+	}
+		
 	static int getEnvironment(lua_State* L)
 	{
 		if (!lua_istable(L, 1)) {
@@ -1189,6 +1230,7 @@ struct LuaScriptModuleImpl final : LuaScriptModule {
 		LuaWrapper::createSystemVariable(L, "Editor", "COLOR_PROPERTY", Property::COLOR);
 		
 		LuaWrapper::createSystemFunction(L, "LuaScript", "getEnvironment", &LuaScriptModuleImpl::getEnvironment);
+		LuaWrapper::createSystemFunction(L, "LuaScript", "getInlineEnvironment", &LuaScriptModuleImpl::getInlineEnvironment);
 		LuaWrapper::createSystemFunction(L, "LuaScript", "rescan", &LuaScriptModuleImpl::rescan);
 		LuaWrapper::createSystemFunction(L, "LuaScript", "cancelTimer", &LuaWrapper::wrapMethod<&LuaScriptModuleImpl::cancelTimer>); 
 		LuaWrapper::createSystemFunction(L, "LuaScript", "setTimer", &LuaScriptModuleImpl::setTimer);
@@ -1199,6 +1241,11 @@ struct LuaScriptModuleImpl final : LuaScriptModule {
 		const Array<ScriptInstance>& scripts = m_scripts[entity]->m_scripts;
 		if (scr_index >= scripts.size()) return -1;
 		return scripts[scr_index].m_environment;
+	}
+
+	int getInlineEnvironment(EntityRef entity) override {
+		const InlineScriptComponent& script = m_inline_scripts[entity];
+		return script.m_environment;
 	}
 
 
@@ -1893,6 +1940,16 @@ struct LuaScriptModuleImpl final : LuaScriptModule {
 			LuaWrapper::pcall(update_item.state, 1, 0);
 			lua_pop(update_item.state, 1);
 		}
+
+		for (EntityRef e : m_deferred_destructions) {
+			m_world.destroyEntity(e);
+		}
+		m_deferred_destructions.clear();
+
+		for (World::PartitionHandle p : m_deferred_partition_destructions) {
+			m_world.destroyPartition(p);
+		}
+		m_deferred_partition_destructions.clear();
 	}
 
 
@@ -1977,6 +2034,13 @@ struct LuaScriptModuleImpl final : LuaScriptModule {
 		if (beginFunctionCall(entity, scr_index, fn)) endFunctionCall();
 	}
 
+	void deferPartitionDestruction(u16 partition) override {
+		m_deferred_partition_destructions.push(partition);
+	}
+
+	void deferEntityDestruction(EntityRef entity) override {
+		m_deferred_destructions.push(entity);
+	}
 
 	void enableScript(EntityRef entity, int scr_index, bool enable) override
 	{
@@ -2136,6 +2200,8 @@ struct LuaScriptModuleImpl final : LuaScriptModule {
 	};
 
 	LuaScriptSystemImpl& m_system;
+	Array<EntityRef> m_deferred_destructions;
+	Array<World::PartitionHandle> m_deferred_partition_destructions;
 	HashMap<EntityRef, ScriptComponent*> m_scripts;
 	HashMap<EntityRef, InlineScriptComponent> m_inline_scripts;
 	HashMap<StableHash, String> m_property_names;
